@@ -117,24 +117,17 @@ Once the Stack is up and running, you will be able to access each service via:
 
 |Service| 	External URL (via Nginx)|	Internal URL (within Docker)|
 |------|----|---|
-
 |Streamlit UI | http://localhost:8080/ | http://streamlit-app:8501|
 |------|----|---|
-
 |vLLM API|	http://localhost:8080/v1|	http://vllm:8000/v1|
 |------|----|---|
-
 |vLLM Metrics|	http://localhost:8080/metrics|	http://vllm:8000/metrics|
 |------|----|---|
-
 |Grafana	|http://localhost:8080/grafana/	|http://grafana:3000|
 |------|----|---|
-
 |Prometheus	|http://localhost:9090 (direct)	|http://prometheus:9090|
 |------|----|---|
-
 |ChromaDB	|N/A (Internal only)|	http://chroma-db:8000
-|------|----|---|
 
 ## 
 
@@ -224,7 +217,7 @@ If the query cannot be resolved via the election_results table:
 ### Level 2: Hybrid Router (SQL + RAG for fuzziness, narrative, grounding)
 TBA
 
-## Level 3: Improved Agentic (clarification + disambiguation + multi-step)
+### Level 3: Improved Agentic (clarification + disambiguation + multi-step)
 TBA
 
 ### Level 4: Advanced (observability + evaluation + reliability)
