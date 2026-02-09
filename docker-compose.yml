@@ -103,7 +103,7 @@ services:
   # streamlit-app:
   #   build: .
     # context: .
-    # dockerfile: Dockerfile.streamlit
+    # dockerfile: Dockerfile.ui
     # environment:
     #   - VLLM_MODEL=${VLLM_MODEL}
     #     - VLLM_URL=http://vllm:${VLLM_PORT}/v1
