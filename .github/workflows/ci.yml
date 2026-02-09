@@ -1,0 +1,10 @@
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and Run Stack
+        run: docker system prune -f && python3 src/init.py # docker-compose up -d
+      - name: Wait for Healthcheck
+        run: |
+          timeout 300s bash -c 'until curl -s http://localhost:8080/v1/models; do sleep 5; done'

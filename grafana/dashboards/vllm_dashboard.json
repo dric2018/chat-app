@@ -1,0 +1,116 @@
+{
+  "title": "LLM Performance & Workload Monitoring",
+  "tags": ["LLM", "vLLM", "Monitoring"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Total Requests Completed",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "sum(vllm:request_success_total)" }],
+      "options": { "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "title": "Total Tokens (Gen / Prompt)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(vllm:generation_tokens_total)", "legendFormat": "Generated" },
+        { "expr": "sum(vllm:prompt_tokens_total)", "legendFormat": "Prompt" }
+      ]
+    },
+    {
+      "title": "Avg Tokens per Request",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "sum(vllm:generation_tokens_total) / sum(vllm:request_success_total)" }]
+    },
+    {
+      "title": "User Perceived Latency (P95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket[5m])) by (le, source))", "legendFormat": "E2E Latency" },
+        { "expr": "histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket[5m])) by (le))", "legendFormat": "TTFT" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "title": "System Throughput (Tokens/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [{ "expr": "sum(rate(vllm:generation_tokens_total[1m]))", "legendFormat": "Throughput" }]
+    },
+    {
+      "title": "Blocked Security Violations",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rag_sql_security_violations_total)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Violation Source Analysis",
+      "type": "piechart",
+      "targets": [
+        {
+          "expr": "sum by (reason) (rag_sql_security_violations_total)",
+          "legendFormat": "{{reason}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": true, "calcs": ["lastNotNull"] },
+        "displayLabels": ["name", "value"]
+      }
+    },
+    {
+      "title": "Query 'Not Found' Frequency",
+      "type": "bargauge",
+      "targets": [
+        {
+          "expr": "rate(rag_not_found_total[1h])",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "continuous" }
+        }
+      }
+    },
+
+    {
+      "title": "Workload Distribution (Running vs Waiting)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "vllm:num_requests_running", "legendFormat": "Running" },
+        { "expr": "vllm:num_requests_waiting", "legendFormat": "Waiting (Queued)" }
+      ]
+    },
+    {
+      "title": "KV Cache Capacity Usage",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [{ "expr": "vllm:gpu_cache_usage_perc * 100" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100 } }
+    }
+  ],
+  "schemaVersion": 38
+}

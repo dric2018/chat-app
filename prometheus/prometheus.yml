@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 5s # scrape metrics every 5s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: "vllm"
+    metrics_path: '/metrics'
+    static_configs:
+    - trgets: ['vllm:8000']
+
+  - job_name: 'ui-metrics'
+    static_configs:
+      - targets: ['streamlit-app:8501']
+        labels:
+          source: 'streamlit'
+      - targets: ['open-webui:3000']
+        labels:
+          source: 'open_webui'
+    relabel_configs:
+      - target_label: 'app_type'
+        replacement: 'sql_agent'
+ 
+  # Metric Source 3: Node Exporter (Optional: Monitor GPU/CPU health)
+  - job_name: 'system'
+    static_configs:
+      - targets: ['node-exporter:9100']

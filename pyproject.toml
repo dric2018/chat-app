@@ -1,0 +1,61 @@
+[project]
+name = "chat-app"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.13.7"
+dependencies = [
+    "langchain>=1.0.8",
+    "langchain-openai>=1.0.3",
+    "mlflow>=3.6.0",
+    "streamlit", 
+    "pdfplumber>=0.10.0",
+    "pandas>=2.0.0",
+    "sqlparse>=0.4.4",
+    "prometheus-client>=0.17.1",
+    "sqlite-vec>=0.1.0",
+    "openai>=1.0.0",
+    "langchain-community",
+    "langchain-text-splitters",
+    "python-magic",
+    "sqlalchemy",
+    "plotly",
+    "tomli",
+    "requests",
+    "sentence-transformers"
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.4.0",
+    "python-dotenv>=1.2.1",
+    "jupyterlab>=4.5.0",
+    "ioywidgets>=8.1.8",
+    "streamlit>=1.31.0",
+    "openai>=1.10.0",
+    "pymupdf>=1.23.0",
+    "langchain>=0.1.0"
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "."
+]
+
+[tool.vllm-stack]
+model = "mistralai/Mistral-7B-Instruct-v0.3" #deepseek-ai/DeepSeek-R1-0528-Qwen3-8B #mistralai/Mistral-7B-Instruct-v0.3 openai/gpt-oss-20b #microsoft/Phi-4-mini-instruct
+gpu_image = "vllm/vllm-openai:latest"
+cpu_image = "openeuler/vllm-cpu:latest" # Official CPU-optimized build
+port = 8000
+nginx_port = 8080
+
+[tool.db]
+db_name='elections.db'
+port=8000
+chunk_size=1000
+chunk_overlap=100
+
+[tool.monitoring]
+mlflow_port=5000
+
+[tool.setuptools]
+package-dir = {"" = "src"}

@@ -1,3 +1,42 @@
+.env
+logs
+
+# --- Docker & Persistence ---
+# We ignore the local mount points for Named Volumes if they aren't in /var/lib/docker
+prometheus/data/
+grafana/data/
+mlflow/mlruns/
+mlflow/artifacts/
+
+# --- Databases & Data (CRITICAL) ---
+# We ignore the actual SQLite file but keep the directory structure
+storage/*.sqlite
+storage/*.sqlite-journal
+storage/*.sqlite-shm
+storage/*.sqlite-wal
+
+# --- Secrets & Config ---
+.env
+config.local.py
+nginx/certs/
+*.pem
+*.key
+
+# --- vLLM & Models ---
+# Never push 10GB+ model weights to Git
+.cache/
+models/
+hf_home/
+
+# --- Notebooks & OS ---
+.ipynb_checkpoints
+.DS_Store
+Thumbs.db
+
+# Ignore the raw PDFs (Source of Truth remains on your local disk/S3)
+data/raw/*.pdf
+data/processed/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -143,6 +182,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+lib/
+bin/
 
 # Spyder project settings
 .spyderproject

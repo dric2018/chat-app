@@ -1,0 +1,9 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus # name in grafana
+    type: prometheus 
+    access: proxy # access via Grafana backend
+    url: http://prometheus:9090
+    isDefault: true # making this the default datasource
+    editable: false # preve,ting users from making changes
