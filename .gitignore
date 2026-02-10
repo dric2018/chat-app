@@ -1,6 +1,7 @@
 .env
 logs/
 data/
+storage/
 
 # --- Docker & Persistence ---
 # We ignore the local mount points for Named Volumes if they aren't in /var/lib/docker

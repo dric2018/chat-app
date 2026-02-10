@@ -1,12 +1,12 @@
-from __init__ import logger, args
+from __init__ import logger, args, client
+from config import CFG
 import pandas as pd
 import pdfplumber
 import requests
 
-import streamlit as st
-
 import sqlite3
-from prometheus_client import start_http_server, Summary, Counter
+import sqlite_vec
+from sqlite_vec import serialize_float32
 
 def check_stack_health():
     services = {
@@ -30,39 +30,6 @@ def check_stack_health():
 
     return up
 
-# Measuring how long SQL execution takes
-SQL_TIME = Summary('sql_execution_seconds', 'Time spent executing safe SQL')
-
-
-# Starting the metrics server on a separate port inside the container
-start_http_server(8000)
-
-@st.cache_resource
-def start_metrics_server():
-    # Start server on port 8000 inside the container
-    start_http_server(8000)
-    return {
-        "sql_latency": Summary('sql_op_seconds', 'Time spent on SQLite ops'),
-        "attacks": Counter('sql_attacks_total', 'Blocked adversarial queries')
-    }
-
-
-@SQL_TIME.time()
-def run_safe_query(query, db_path="data/election_results.db"):
-    forbidden = ["DROP", "DELETE", "UPDATE", "INSERT"]
-    if any(cmd in query.upper() for cmd in forbidden):
-        return None, "⚠️ Security Violation: Unauthorized Command."
-    
-    try:
-        # Connect in Read-Only mode
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        df = pd.read_sql_query(query, conn)
-        conn.close()
-        return df, None
-    except Exception as e:
-        return None, f"SQL Error: {str(e)}"
-
-
 def ingest_election_pdf(pdf_path, db_path):
     all_tables = []
     with pdfplumber.open(pdf_path) as pdf:
@@ -83,3 +50,48 @@ def ingest_election_pdf(pdf_path, db_path):
     conn.execute("CREATE VIEW vw_participation AS SELECT region, AVG(participation_rate) as rate FROM election_results GROUP BY region")
     conn.close()
     logger.info("✅ Ingestion complete: SQLite DB created.")
+
+
+def add_embedding(chunk_text:str, db_conn):
+    embedding = get_embedding(chunk_text)
+
+    cur = db_conn.execute("INSERT INTO docs (content) VALUES (?)", (chunk_text,))
+    doc_id = cur.lastrowid
+
+    db_conn.execute(
+        "INSERT INTO vec_index(embedding, content_id) VALUES (?, ?)",
+        (sqlite_vec.serialize_float32(embedding), doc_id)
+    )
+    db_conn.commit()
+
+def get_embedding(text:str):
+    """Fetches embedding from vLLM (Ensure vLLM is running an embedding model or --task embed)"""
+    response = client.embeddings.create(
+        model=CFG.BASE_MODEL,
+        input=[text]
+    )
+    return response.data[0].embedding
+
+
+def retrieve_context(
+    db:sqlite3.Connection, 
+    user_query:str, 
+    k:int=5
+    ):
+    """Finds top K relevant chunks from SQLite"""
+    query_vector = get_embedding(user_query)
+    
+    # Search using cosine distance
+    cursor = db.execute("""
+        SELECT d.content 
+        FROM vec_index v
+        JOIN docs d ON v.content_id = d.id
+        WHERE v.embedding MATCH ? AND k = ?
+        ORDER BY distance
+    """, [serialize_float32(query_vector), k])
+    
+    results = cursor.fetchall()
+
+    return "\n".join([r[0] for r in results])
+
+

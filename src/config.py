@@ -5,7 +5,6 @@ import os
 import os.path as osp
 
 class CFG:
-    BASE_MOSEL  = "openai/gpt-oss-20b"
     LOGS_DIR    = osp.join(os.path.abspath("."), "logs")
     DATA_DIR    = osp.join(os.path.abspath("."), "data")
 
@@ -16,7 +15,7 @@ class CFG:
     VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", f"http://vllm:{VLLM_PORT}/v1")
     
     MLFLOW_PORT = os.getenv("MLFLOW_PORT", "5000")
-    MLFLOW_TRACKING_URI = f"http://mlflow:{MLFLOW_PORT}/v1"
+    MLFLOW_TRACKING_URI = f"http://mlflow:{MLFLOW_PORT}"
 
     # DB Paths
     DB_DIR      = osp.join(os.path.abspath("."), "storage")
@@ -28,5 +27,7 @@ class CFG:
     SQL_MAX_LIMIT = 50
     
     # LLM Settings
-    MODEL_NAME = "google/gemma-2b"
-    RELEVANCE_THRESHOLD = 0.8  # For intent classification
+    BASE_MODEL              = "Qwen/Qwen3-0.6B" #"Qwen/Qwen3-1.7B" #"facebook/opt-125m"
+    RELEVANCE_THRESHOLD     = 0.8  # For intent classification
+    GENERATION_TEMPERATURE  = 0.7
+    MAX_TOKENS              = 100

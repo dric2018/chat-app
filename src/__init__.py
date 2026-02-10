@@ -2,6 +2,7 @@ import argparse
 from config import CFG
 import logging
 import os.path as osp
+from openai import OpenAI
 import sys
 
 # Configure global logging for the stack initialization
@@ -19,5 +20,10 @@ parser.add_argument("--reset", action="store_true", help="Full wipe and rebuild 
 parser.add_argument("--refresh", action="store_true", help="Rebuild Streamlit UI only (keeps vLLM warm)")
 args = parser.parse_args()
 
+client = OpenAI(
+    base_url=f"http://localhost:{CFG.VLLM_PORT}/v1",
+    api_key="token-is-ignored",
+)
+
 logger = logging.getLogger("LocalLLMStack")
-__all__ = ["logger", "args"]
+__all__ = ["logger", "args", "client"]

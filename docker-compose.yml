@@ -8,7 +8,28 @@ x-gpu-config: &gpu-config
             capabilities: [gpu]
 
 services:
-# Foundations
+  # Foundations
+
+  # mlflow:
+  #   image: ghcr.io/mlflow/mlflow:latest
+  #   ports:
+  #     - "5005:5000"
+  #   volumes:
+  #     # Mount local directories to persist the SQLite DB and artifacts
+  #     - ./storage/mlflow_data:/mlflow      
+  #     - ./storage/mlflow_data/backend:/mlflow/backend
+  #     - ./storage/mlflow_data/artifacts:/mlflow/artifacts
+  #   command: >
+  #     mlflow server
+  #     --host 0.0.0.0
+  #     --port 5005
+  #     --backend-store-uri sqlite:////mlflow/mlflow.db
+  #     --default-artifact-root file:///mlflow/artifacts
+  #     --serve-artifacts
+  #     --allowed-hosts "*"
+  #     --cors-allowed-origins "*"
+  #   restart: unless-stopped
+
   vllm:
     image: ${VLLM_IMAGE}
     # shm_size is critical for vLLM performance on M CPUs
@@ -20,45 +41,21 @@ services:
       # Mount a volume for model weights cache to persist across runs
       - ~/.cache/huggingface:/root/.cache/huggingface
       - models:/root/.cache/huggingface
-    command: 
-      - --model ${VLLM_MODEL}
-      - --host 0.0.0.0
-      - --dtype auto
-      # - --gpu-memory-utilization 0.9
-      - --max-model-len 4096
-      - --max-num-batched-tokens 3264"
-      - --trust-remote-code
-      - --device ${VLLM_DEVICE}
+    command: >
+      --model ${VLLM_MODEL}
+      --host 0.0.0.0
+      --dtype auto
+      --max-model-len 1024
+      --trust-remote-code
     environment:
       - HF_TOKEN=${HF_TOKEN}
-
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 30s
       retries: 20  # Gives it time to load large models (2-3 minutes)      
       start_period: 50s
-    restart: on-failure
-
-  mlflow:
-    image: ghcr.io/mlflow/mlflow:latest
-    ports:
-      - "5005:5005"
-    volumes:
-      # Mount local directories to persist the SQLite DB and artifacts
-      - mlflow_data:/mlflow      
-      # - mlflow_data/backend:/mlflow/backend
-      # - mlflow_data/artifacts:/mlflow/artifacts
-    command: >
-      mlflow server
-      --host 0.0.0.0
-      --port 5000
-      --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root file:///mlflow/artifacts
-      --allowed-hosts "*"
-      --cors-allowed-origins "*"
     restart: unless-stopped
-
 # Data ingestion
   # ingestion-job:
   #   build: 
@@ -77,7 +74,7 @@ services:
   # prometheus:
   #   image: prom/prometheus:latest
   #   volumes:
-  #     - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+  #     - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
   #   command: '--config.file=/etc/prometheus/prometheus.yml'
   #   ports:
   #     - 9090:9090
@@ -91,7 +88,7 @@ services:
   #     - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
   #     - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
   #   ports:
-  #     - "4000:4000"
+  #     - "4317:4317"
   #   environment:
   #     - GF_PROVISIONING_PATH=/etc/grafana/provisioning
   #   depends_on:
@@ -100,61 +97,68 @@ services:
 
   # Access/UI
   # UI Option A: Custom Streamlit App
-  # streamlit-app:
-  #   build: .
-    # context: .
-    # dockerfile: Dockerfile.ui
-    # environment:
-    #   - VLLM_MODEL=${VLLM_MODEL}
-    #     - VLLM_URL=http://vllm:${VLLM_PORT}/v1
-    #     - DB_PATH=/app/data/elections.sqlite
-    # ports:
-    #   - "8501:8501"
-    # volumes:
-    #   - .:/app
-    #   - ./db:/app/db:ro  # Store your .db and .pdf files here
-    # command: streamlit run chat_app.py --server.address 0.0.0.0
-    # networks:
-    #   - backend-net
-    #     - monitoring
+  streamlit-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    environment:
+      - VLLM_MODEL=${VLLM_MODEL}
+      - VLLM_URL=http://vllm:${VLLM_PORT}/v1
+        # - DB_PATH=/app/data/elections.sqlite
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+      # - ./storage:/app/storage:ro  # Store your .db and .pdf files here
+    # command: streamlit run src/chat_app.py --server.address 0.0.0.0
+    networks:
+      - backend-net
+      - monitoring_network
     # depends_on:
     #   vllm: 
-    #      condition: service_healthy
+    #     condition: service_completed_successfully
     #   ingestion-job:
     #     condition: service_completed_successfully
 
   # UI Option B: Feature-rich Open WebUI
   # open-webui:
   #   image: ghcr.io/open-webui/open-webui:main
-  #   ports: ["3000:3000"]
+  #   ports: ["3000:8080"]
   #   volumes:
-  #     - open-webui:/app/backend/data
+  #     - ./storage/open_webui_data:/app/backend/data
   #   environment:
-  #     - OPENAI_API_BASE_URL=http://vllm:8000/v1
+  #     - OPENAI_API_BASE_URL=http://localhost:${VLLM_PORT}/v1/completions
   #     - OPENAI_API_KEY=unused
+  #     # - ENABLE_OTEL=true
+  #     # - ENABLE_OTEL_METRICS=true
+  #     # - OTEL_EXPORTER_OTLP_INSECURE=true # Use insecure connection for OTLP, you may want to remove this in production
+  #     # - OTEL_EXPORTER_OTLP_ENDPOINT=http://grafana:${GRAFANA_PORT}
+  #     # - OTEL_SERVICE_NAME=open-webui        
   #   extra_hosts:
   #     - "host.docker.internal:host-gateway"
+  #   restart: "no"
 
-  # nginx:
-  #   image: nginx:latest
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-  #   ports:
-  #     - "${NGINX_PORT:-8080}:80"      
-  #   depends_on:
-  #     - streamlit-app
-  #     - vllm
-  #   restart: unless-stopped
+  nginx:
+    image: nginx:latest
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${NGINX_PORT:-8080}:80"      
+    depends_on:
+      - streamlit-app
+      - vllm
+    restart: unless-stopped
 
-# networks:
-#   backend-net:
-#     driver: bridge
-#   monitoring_network:
-#     driver: bridge
+networks:
+  backend-net:
+    driver: bridge
+  monitoring_network:
+    driver: bridge
     
 volumes:
-  mlflow_data:
+  # mlflow_data:
   models:
       driver: local
-#   grafana_data:
-#   prometheus_data:
+  grafana_data:
+  prometheus_data:
+  open_webui_data:

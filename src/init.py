@@ -10,7 +10,7 @@ from __init__ import logger, args
 def setup_configs():
     """Generates Nginx and Prometheus configs based on pyproject.toml."""
     
-    logger.info("\nCalling setup_configs()...")
+    logger.info("Calling setup_configs()...")
     logger.info("Generating Nginx and Prometheus configurations...")
     
     nginx_conf = f"""
@@ -21,7 +21,7 @@ def setup_configs():
         listen 80;
         
         location / {{
-            proxy_pass http://streamlit-app:8501;
+            proxy_pass http://localhost:8501;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -29,7 +29,7 @@ def setup_configs():
         }}
 
         location /v1/ {{
-            proxy_pass http://vllm:8000/v1/;
+            proxy_pass http://localhost:8000/v1/;
         }}
     
         location /api/query {{
@@ -51,7 +51,7 @@ def setup_configs():
     logger.info("Configuration files written successfully.")
     
 def setup_env_file(config, hw:dict):
-    logger.info("\nCalling setup_env_file()...")
+    logger.info("Calling setup_env_file()...")
     
     logger.info("⚙️ Writing .env file for Docker Compose...")
     with open(".env", "w") as f:
@@ -63,7 +63,7 @@ def setup_env_file(config, hw:dict):
         f.write(f"HF_TOKEN={os.getenv('HF_TOKEN', '')}\n")
 
 def detect_hardware():
-    logger.info("\nCalling detect_hardware()...")
+    logger.info("Calling detect_hardware()...")
     
     sys_info    = platform.system()
     arch_info   = platform.machine()
@@ -86,27 +86,27 @@ def detect_hardware():
             return {"image": "vllm/vllm-cpu:latest", "device": "cpu", "is_mac": False}
 
 def run_stack():
-    logger.info("\nCalling run_stack()...")
+    logger.info("Calling run_stack()...")
     if not os.environ.get("VIRTUAL_ENV"):
         logger.warning("⚠️ You are not running in a virtual environment. Highly recommended!!!")
 
     try:
         with open("pyproject.toml", "rb") as f:
-            config = tomllib.load(f)["tool"]["vllm-stack"]
+            config = tomllib.load(f)["tool"]
         
         # Hardware Detection
         hw = detect_hardware()
-        nginx_external_port = config.get("nginx_port", 8080)
+        nginx_external_port = config.get("nginx_port", "8080")
         os.environ["NGINX_PORT"]    = str(nginx_external_port)
         os.environ["VLLM_IMAGE"]    = hw["image"]
         os.environ["VLLM_DEVICE"]   = hw["device"]
-        os.environ["VLLM_MODEL"]    = config["model"]
-        os.environ["VLLM_PORT"]     = str(config["port"])
-        os.environ["MLFLOW_PORT"]   = config["mlflow_port"]        
-        os.environ["DB_PATH"]       = CFG.DB_PATH    
+        os.environ["VLLM_MODEL"]    = config["vllm-stack"]["model"]
+        os.environ["VLLM_PORT"]     = str(config["vllm-stack"]["port"])
+        os.environ["MLFLOW_PORT"]   = str(config["monitoring"]["mlflow_port"])        
+        os.environ["DB_PATH"]       = CFG.DB_PATH   
 
-        setup_env_file(config, hw)
-        setup_configs(config["port"])
+        setup_env_file(config["vllm-stack"], hw)
+        setup_configs()
     
         if hw["is_mac"]:
             os.environ["COMPOSE_PROFILES"] = "cpu"
@@ -123,12 +123,11 @@ def run_stack():
 
 
         # Standard Launch (Smart & Cached)
-        logger.info(f"🐳 Launching stack: \n> Device: {os.environ['VLLM_DEVICE']} ({platform.processor()})\n")
+        logger.info(f"🐳 Launching stack...Device: {os.environ['VLLM_DEVICE']} ({platform.processor()})\n")
         
         if args.reset:
             logger.warning("🧹 Hard Reset: Wiping containers and volumes...")
-            subprocess.run(["docker-compose", "down", "-v", "--remove-orphans"], check=False)
-            subprocess.run(["docker-compose", "build", "--no-cache"], check=True)
+            subprocess.run(["docker-compose", "up", "-d", "--remove-orphans"], check=True)
         
         elif args.refresh:
             logger.info("🔍 Checking backend health before refresh...")
@@ -139,38 +138,40 @@ def run_stack():
                 confirm = input("Force UI refresh anyway? (y/n): ")
                 if confirm.lower() != 'y':
                     sys.exit(1)
+
             logger.info("♻️ Refreshing Frontend only...")
-            subprocess.run(["docker-compose", "build", "streamlit-app"], check=True)
-            # --no-recreate ensures vLLM isn't touched
-            subprocess.run(["docker-compose", "up", "-d", "streamlit-app"], check=True)
+            subprocess.run(["docker-compose", "up", "-d", "streamlit-app", 
+                "--no-recreate"
+                ], check=True)
+            
             return
     
-        subprocess.run([
-            "docker-compose", "up", "-d", "vllm", "mlflow",
-            "--no-recreate" # Prevents vLLM restart if nothing changed
-        ], env=os.environ, check=True)  
+        # subprocess.run([
+        #     "docker-compose", "up", "-d", "vllm", #"mlflow",
+        #     "--no-recreate" # Prevents vLLM restart if nothing changed
+        # ], env=os.environ, check=True)  
 
         # DATA INGESTION
         # Use a flag to skip if data already exists, or always run if 'args.reset'
-        logger.info(f"💾 Preparing data ingestion...\n")
+        # logger.info(f"💾 Preparing data ingestion...\n")
         
-        if args.reset or not os.path.exists(os.environ.get("DB_PATH", "elections.db")):
-            logger.info("📥 Starting Data Ingestion (PDF to DB)...")
-            subprocess.run([
-                "docker-compose", "run", "--rm", "ingestion-job"
-            ], env=os.environ, check=True)
-            logger.info("✅ Ingestion complete.")
-        else:
-            logger.info("⏭️ skipping ingestion (Database already exists).")
+        # if args.reset or not os.path.exists(os.environ.get("DB_PATH", "elections.db")):
+        #     logger.info("📥 Starting Data Ingestion (PDF to DB)...")
+        #     subprocess.run([
+        #         "docker-compose", "run", "--rm", "ingestion-job"
+        #     ], env=os.environ, check=True)
+        #     logger.info("✅ Ingestion complete.")
+        # else:
+        #     logger.info("⏭️ skipping ingestion (Database already exists).")
 
         logger.info("🐳 Backend is up!")
 
-        logger.info("📺 Building & launching Streamlit frontend...")
-        subprocess.run(["docker-compose", "build", "streamlit-app"], check=True)
-        subprocess.run(["docker-compose", "up", "-d", "streamlit-app"], check=True)
-        subprocess.run(["docker-compose", "up", "-d", "nginx"], check=True)
+        # logger.info("📺 Building & launching Streamlit frontend...")
+        # subprocess.run(["docker-compose", "build", "streamlit-app"], check=True)
+        # subprocess.run(["docker-compose", "up", "-d", "streamlit-app"], check=True)
+        # subprocess.run(["docker-compose", "up", "-d", "nginx"], check=True)
 
-        logger.info(f"🌐 Nginx will be available at http://localhost:{nginx_external_port}")       
+        # logger.info(f"🌐 Nginx will be available at http://localhost:{nginx_external_port}")       
         logger.info(f"🚀 Stack is fully operational! Access at http://0.0.0.0:{os.environ['NGINX_PORT']}")
 
     except Exception as e:

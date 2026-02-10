@@ -53,6 +53,10 @@ class ElectionDB:
         conn.execute("DROP TABLE IF EXISTS results_vec")
         conn.execute("CREATE VIRTUAL TABLE results_vec USING vec0(embedding float[384], row_id INTEGER PRIMARY KEY)")
         
+        # Create a table for text and a virtual table for vector search
+        # conn.execute("CREATE TABLE docs (id INTEGER PRIMARY KEY, content TEXT)")
+        # conn.execute("CREATE VIRTUAL TABLE vec_index USING vec0(embedding float[4096], content_id int)")
+
         return conn
     
     def ingest_pdf(self, pdf_path:str):
