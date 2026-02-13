@@ -119,7 +119,8 @@ class SQLAgent:
             QueryIntent.CHART: "Return exactly two columns: a label (e.g., party) and a numeric value."
         }
         generation_prompt = f"""
-        You are an Election Data and SQL Expert. Given this schema:
+        You are a Sata Scientist with deep expertise in elections data and an SQL Expert. 
+        Given this schema:
         {self.schema_context}
         Intent: {intent.value}. {intent_instructions.get(intent, "")}
         Generate a single valid SQL SELECT statement. 

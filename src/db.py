@@ -43,11 +43,12 @@ class ElectionDB:
                 FOREIGN KEY(turnout_id) REFERENCES turnout(id)
             )""")
         
+        # Create table with total numbers extracted from pdf data !!!
+        
         # Creating indexed for query optimization
         conn.execute("""CREATE INDEX idx_results_votes ON results(votes DESC);""")
         conn.execute("""CREATE INDEX idx_results_party ON results(party);""")
         conn.execute("""CREATE INDEX idx_turnout_commune ON turnout(commune);""")
-
         
         # Create the Vector Search Table (using vec0 virtual table)
         conn.execute("DROP TABLE IF EXISTS results_vec")

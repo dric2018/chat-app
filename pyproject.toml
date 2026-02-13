@@ -4,8 +4,12 @@ version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "docker",
     "langchain>=1.0.8",
     "langchain-openai>=1.0.3",
+    "langchain-community",
+    "langchain-text-splitters",
+    "langchain-core",
     "mlflow>=3.6.0",
     "streamlit", 
     "pdfplumber>=0.10.0",
@@ -14,13 +18,12 @@ dependencies = [
     "prometheus-client>=0.17.1",
     "sqlite-vec>=0.1.0",
     "openai>=1.0.0",
-    "langchain-community",
-    "langchain-text-splitters",
     "python-magic",
     "sqlalchemy",
     "plotly",
     "tomli",
     "requests",
+    "ipywidgets",
     "sentence-transformers"
 ]
 
@@ -42,21 +45,11 @@ pythonpath = [
 ]
 
 [tool.vllm-stack]
-model = "Qwen/Qwen3-0.6B" #"facebook/opt-125m" # "mistralai/Mistral-7B-Instruct-v0.3" #deepseek-ai/DeepSeek-R1-0528-Qwen3-8B #mistralai/Mistral-7B-Instruct-v0.3 openai/gpt-oss-20b #microsoft/Phi-4-mini-instruct
 gpu_image = "vllm/vllm-openai:latest"
 cpu_image = "openeuler/vllm-cpu:latest" # Official CPU-optimized build
-port = 8000
-nginx_port = 8080
 
 [tool.db]
 db_name='elections.db'
-port=8000
-chunk_size=1000
-chunk_overlap=100
-
-[tool.monitoring]
-mlflow_port=5000
-grafana_port=4317
 
 [tool.setuptools]
 package-dir = {"" = "src"}

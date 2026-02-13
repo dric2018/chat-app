@@ -10,10 +10,10 @@ from sqlite_vec import serialize_float32
 
 def check_stack_health():
     services = {
-        "vLLM": "http://localhost:8000/v1/models",
-        "Streamlit": "http://localhost:8501/_stcore/health",
-        "Prometheus": "http://localhost:9090/-/healthy",
-        "MLflow": "http://localhost:5000/health"
+        "MLflow": f"http://{CFG.SERVER_IP}:{CFG.MLFLOW_PORT}/health",
+        "Nginx": f"http://{CFG.SERVER_IP}:{CFG.NGINX_PORT}",
+        "Prometheus": f"http://{CFG.SERVER_IP}:{CFG.PROMETHEUS_PORT}/-/healthy",
+        "vLLM": f"http://{CFG.SERVER_IP}:{CFG.VLLM_PORT}/health",
     }
     
     up = False
@@ -22,11 +22,11 @@ def check_stack_health():
         try:
             res = requests.get(url, timeout=2)
             status = "✅" if res.status_code == 200 else "⚠️"
-            logger.info(f"{status} {name}: {res.status_code}")
+            logger.info(f"{status} {name}: \t{res.status_code} (url: {url})")
 
             up = True
         except:
-            logger.error(f"❌ {name}: Unreachable")
+            logger.error(f"❌ {name}: \tUnreachable via url {url}")
 
     return up
 

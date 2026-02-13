@@ -91,24 +91,38 @@ We have implemented a `Streamlit` UI to meet the minimal requirements, but went 
     - See [notebooks/pdf_data_extraction.ipynb](notebooks/pdf_data_extraction.ipynb) for more details about our experiments with the target dataset and how the data extraction pipeline was tailored to the subject matter given we had only one PDF to consider as data source.
 
 ### Setup
+Make sure docker is already installed on the host machine. Installation details can be found at [subfuzion/install-docker-ubuntu.md](https://gist.github.com/subfuzion/90e8498a26c206ae393b66804c032b79) on GitHub Gist.
+
+Typically, it can be done by running the following command line:
+```sh
+$ curl -fsSL https://get.docker.com/ | sh
+```
+
 If Python is not already installed oin the machine, you can do so by running the following commands:
 ```bash
-$ sudo apt-get update && sudo apt-get install -y python3
+$ sudo apt-get update && sudo apt-get install -y python3.13 python3.13-venv python3.13-dev
+
 # it can be installed on Mac OS X using the `brew install python` command 
 # or check the guide from https://docs.python-guide.org/starting/install3/osx/
 ```
 
-Crete virtual environment (venv) on host machine
+Create a virtual environment (venv) on the host machine
 ```bash
-$ python3 -m venv .venv # creating the venv and installing project dependencies
+$ python3.13 -m venv .venv # creating the venv and installing project dependencies
 $ source .venv/bin/activate && pip install . # then run this to install packages within venv
+```
+
+Once these are successfully installed, you can clone this repository with:
+
+```bash
+$ git clone git@github.com:dric2018/chat-app.git # and cd into the chat-app folder
 ```
 
 #### Build stack: 
 
 The LLM orchestration dependencies can be installed by running the `init.py` script as follows:
 ```bash
-(.venv) $ python3 src/init.py # run the init script
+(.venv) $ python3.13 src/init.py # run the init script
 # this will create the docker containers for running the chat-app
 # it will also create and populate the database by ingesting the document data.
 ```
