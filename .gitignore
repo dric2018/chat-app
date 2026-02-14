@@ -2,6 +2,7 @@
 logs/
 data/
 storage/
+notebooks/mlflow.db
 
 # --- Docker & Persistence ---
 # We ignore the local mount points for Named Volumes if they aren't in /var/lib/docker
