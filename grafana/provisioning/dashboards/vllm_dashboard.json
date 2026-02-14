@@ -1,18 +1,48 @@
 {
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Monitoring vLLM Inference Server",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
   "title": "LLM Performance & Workload Monitoring",
   "tags": ["LLM", "vLLM", "Monitoring"],
   "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" },
+        "hide": 0
+      }
+    ]
+  },
   "panels": [
     {
       "title": "Total Requests Completed",
       "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
-      "targets": [{ "expr": "sum(vllm:request_success_total)" }],
+      "targets": [{ "expr": "sum(vllm:request_success_total)", "legendFormat": "Success" }],
       "options": { "colorMode": "value", "graphMode": "area" }
     },
     {
       "title": "Total Tokens (Gen / Prompt)",
       "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "targets": [
         { "expr": "sum(vllm:generation_tokens_total)", "legendFormat": "Generated" },
@@ -22,15 +52,17 @@
     {
       "title": "Avg Tokens per Request",
       "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
-      "targets": [{ "expr": "sum(vllm:generation_tokens_total) / sum(vllm:request_success_total)" }]
+      "targets": [{ "expr": "sum(vllm:generation_tokens_total) / (sum(vllm:request_success_total) or vector(1))" }]
     },
     {
       "title": "User Perceived Latency (P95)",
       "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "targets": [
-        { "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket[5m])) by (le, source))", "legendFormat": "E2E Latency" },
+        { "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket[5m])) by (le))", "legendFormat": "E2E Latency" },
         { "expr": "histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket[5m])) by (le))", "legendFormat": "TTFT" }
       ],
       "fieldConfig": { "defaults": { "unit": "s" } }
@@ -38,66 +70,14 @@
     {
       "title": "System Throughput (Tokens/s)",
       "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "targets": [{ "expr": "sum(rate(vllm:generation_tokens_total[1m]))", "legendFormat": "Throughput" }]
     },
     {
-      "title": "Blocked Security Violations",
-      "type": "stat",
-      "targets": [
-        {
-          "expr": "sum(rag_sql_security_violations_total)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "title": "Violation Source Analysis",
-      "type": "piechart",
-      "targets": [
-        {
-          "expr": "sum by (reason) (rag_sql_security_violations_total)",
-          "legendFormat": "{{reason}}"
-        }
-      ],
-      "options": {
-        "reduceOptions": { "values": true, "calcs": ["lastNotNull"] },
-        "displayLabels": ["name", "value"]
-      }
-    },
-    {
-      "title": "Query 'Not Found' Frequency",
-      "type": "bargauge",
-      "targets": [
-        {
-          "expr": "rate(rag_not_found_total[1h])",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "min": 0,
-          "max": 1,
-          "color": { "mode": "continuous" }
-        }
-      }
-    },
-
-    {
       "title": "Workload Distribution (Running vs Waiting)",
       "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "targets": [
         { "expr": "vllm:num_requests_running", "legendFormat": "Running" },
@@ -107,9 +87,28 @@
     {
       "title": "KV Cache Capacity Usage",
       "type": "gauge",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "targets": [{ "expr": "vllm:gpu_cache_usage_perc * 100" }],
       "fieldConfig": { "defaults": { "unit": "percent", "max": 100 } }
+    },
+    {
+      "title": "Blocked Security Violations",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 20 },
+      "targets": [{ "expr": "sum(rag_sql_security_violations_total) or vector(0)" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
     }
   ],
   "schemaVersion": 38

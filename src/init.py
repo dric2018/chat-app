@@ -24,8 +24,11 @@ def setup_nginx_config():
         location / {{
             
         if ($http_authorization != "Bearer ")
+        {{
+            return 401;
+        }}
 
-            proxy_pass http://streamlit-app{CFG.UI_PORT};
+            proxy_pass http://streamlit-app:8501;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -43,7 +46,7 @@ def setup_nginx_config():
         }}
 
         location /_stcore/stream {{
-            proxy_pass http://streamlit-app{CFG.UI_PORT}/_stcore/stream;
+            proxy_pass http://streamlit-app:8501/_stcore/stream;
             proxy_http_version 1.1;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header Host $host;
@@ -56,7 +59,7 @@ def setup_nginx_config():
         # 'vllm' is the service name defined in docker-compse.yml
         # this will allow Docker's internal DNS to resolve it to the vLLM container's IP
         location /v1/ {{
-            proxy_pass http://vllm:{CFG.VLLM_PORT};
+            proxy_pass http://vllm:8000;
         }}
     }}"""
     

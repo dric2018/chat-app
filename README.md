@@ -59,7 +59,7 @@ PS: The target environment is either GPU- or CPU-based and is not conditioned on
 #### Vector DB
 ##### Motivation for DB choice between Chroma DB, SQLite and Qdrant
 
-|Feature| 	Qdrant|	ChromaDB| SQLite (vec)|
+|Feature|Qdrant|ChromaDB|SQLite (vec)|
 |---|---|---|---|
 |Performance|High-performance, Rust-based vector database built for horizontal scaling, advanced filtering, and high-concurrency production RAG.|Slower (Python/pysqlite overhead). Developer-friendly, Python-native vector store designed for rapid prototyping and local experimentation with minimal setup.|Good for small sets; struggles at scale. Minimalist extension that adds vector search to the familiar SQLite engine|
 |Monitoring/Observability|Has a built-in Prometheus metrics endpoint.|Limited native observability.|None (requires custom wrappers).|
@@ -129,19 +129,15 @@ The LLM orchestration dependencies can be installed by running the `init.py` scr
 
 Once the Stack is up and running, you will be able to access each service via:
 
-|Service| 	External URL (via Nginx)|	Internal URL (within Docker)|
-|------|----|---|
-|Streamlit UI | http://localhost:8080/ | http://streamlit-app:8501|
-|------|----|---|
-|vLLM API|	http://localhost:8080/v1|	http://vllm:8000/v1|
-|------|----|---|
-|vLLM Metrics|	http://localhost:8080/metrics|	http://vllm:8000/metrics|
-|------|----|---|
-|Grafana	|http://localhost:8080/grafana/	|http://grafana:3000|
-|------|----|---|
-|Prometheus	|http://localhost:9090 (direct)	|http://prometheus:9090|
-|------|----|---|
-|ChromaDB	|N/A (Internal only)|	http://chroma-db:8000
+|Service|External URL (via Nginx)|Internal URL (within Docker)|
+|---|---|---|
+|Streamlit UI | http://localhost:8501/ | http://streamlit-app:8501|
+|vLLM API|	http://localhost:8000/v1/|	http://vllm:8000/v1|
+|vLLM Metrics|	http://localhost:8000/metrics|	http://vllm:8000/metrics|
+|Grafana	|http://localhost:3000	|http://grafana:3000|
+|Prometheus	|http://localhost:9090	|http://prometheus:9090|
+
+The external API is either `localhost` or `127.0.0.1` for local deployments and the provided `SERVER_IP` (see .env.example for details) if deployed on an external machine.
 
 ## 
 
@@ -211,6 +207,23 @@ CREATE TABLE results_embeddings (
 );
 ```
 
+#### Base LLMs
+CPU:
+- Qwen/Qwen3-0.6B ( ✅ )
+    - MAX_TOKENS = 1024
+- Qwen/Qwen3-0.6B ( ✅ )
+    - MAX_TOKENS = 1024
+
+- Qwen/Qwen3-4B-Instruct-2507 
+- facebook/opt-125m ( ❌ )
+- microsoft/Phi-4-mini-instruct
+
+GPU:
+
+- mistralai/Mistral-7B-Instruct-v0.3 
+- deepseek-ai/DeepSeek-R1-0528-Qwen3-8B 
+- mistralai/Mistral-7B-Instruct-v0.3 
+- openai/gpt-oss-20b
 
 #### 🛡️ Adversarial Safety & Guardrail Tests (Requirement C)
 To ensure the system is production-ready and resistant to malicious prompts, run the following test cases in the chat interface.

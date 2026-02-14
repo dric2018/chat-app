@@ -1,18 +1,44 @@
 from __init__ import logger, client
 from config import CFG
 
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
+import re
 import sqlite3
 
 import streamlit as st
 
-import tomllib
+from utils import retrieve_context, parse_llm_response
 
-from utils import retrieve_context
+# Fix base URL for internal (docker) communication
+client.base_url = f"http://vllm:{CFG.VLLM_PORT}/v1"
 
+def parse_thinking_stream(stream):
+    thinking_expander = st.expander("Show Reasoning", expanded=True)
+    thinking_container = thinking_expander.empty()
+    response_container = st.empty()
+
+    full_thinking = ""
+    full_response = ""
+    is_thinking = False
+
+    for chunk in stream:
+        content = chunk.choices[0].delta.content or ""
+        
+        if "<think>" in content:
+            is_thinking = True
+            content = content.replace("<think>", "")
+            
+        if "</think>" in content:
+            is_thinking = False
+            content = content.replace("</think>", "")
+
+        if is_thinking:
+            full_thinking += content
+            thinking_container.markdown(full_thinking)
+        else:
+            full_response += content
+            response_container.markdown(full_response)
+            
+    return full_thinking, full_response
 
 def chat_with_rag(
         user_input:str, 
@@ -38,28 +64,60 @@ def chat_with_rag(
     
     return response.choices[0].message.content
 
-# with open("pyproject.toml", "rb") as f:
-#     config = tomllib.load(f)["tool"]["db"]
+def query_llm(
+        input_text:str, 
+        is_stream:bool=CFG.IS_STREAM
+    ):
 
-st.title("📄 PDF Chat")
+    st.session_state.messages.append(
+        {"role": "user", "content": input_text}
+    )
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-# --- UI: Sidebar History ---
-st.sidebar.title("📚 Your Library")
-# existing_docs = collection.get()
-# if existing_docs['ids']:
-#     # Unique filenames/IDs stored in metadata
-#     st.sidebar.write(f"Indexed chunks: {len(existing_docs['ids'])}")
-#     if st.sidebar.button("Clear All History"):
-#         chroma_client.delete_collection("pdf_history")
-#         st.rerun()
+    if is_stream:
+        with st.chat_message("assistant"):
+            # Stream the response for that "live" feel
+            stream = client.chat.completions.create(
+                model=CFG.BASE_MODEL,
+                messages=st.session_state.messages,
+                stream=True,
+                temperature=CFG.GENERATION_TEMPERATURE,
+                max_tokens=CFG.MAX_TOKENS
+            )
 
-# --- UI: Chat History ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+            # response = st.write_stream(stream)
+            thinking, final_sql = parse_thinking_stream(stream)
+        
+        st.session_state.messages.append({"role": "assistant", "content": final_sql})
+    else:
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing election data..."):
+                response = client.chat.completions.create(
+                    model=CFG.BASE_MODEL,
+                    messages=st.session_state.messages,
+                    stream=False,
+                    temperature=CFG.GENERATION_TEMPERATURE,
+                    max_tokens=CFG.MAX_TOKENS
+                )
+            
+            raw_content = response.choices[0].message.content
+            
+            # Separate Thinking and SQL using your parser
+            thinking, sql_query = parse_llm_response(raw_content)
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+            # Show thinking in a collapsible box
+            if thinking:
+                with st.expander("Show Reasoning"):
+                    st.write(thinking)
+
+            # Format the SQL
+            st.code(sql_query, language="sql")
+
+            st.session_state.messages.append({"role": "assistant", "content": raw_content})
+
+
+st.title("📄 Chat CEI")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -67,25 +125,30 @@ if "messages" not in st.session_state:
 # Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        content = message["content"]
+        
+        # Check if this is an assistant message with thinking tags
+        if message["role"] == "assistant" and "<think>" in content:
+            # Parse the stored string
+            match = re.search(r"<think>(.*?)</think>\s*(.*)", content, re.DOTALL)
+            if match:
+                think_text = match.group(1).strip()
+                sql_text = match.group(2).strip()
+                
+                # Re-draw the UI elements
+                with st.expander("Model Reasoning", expanded=False):
+                    st.markdown(think_text)
+                st.code(sql_text, language="sql")
+            else:
+                st.markdown(content)
+        else:
+            # Standard user message or fallback
+            st.markdown(content)
 
 if prompt := st.chat_input("Ask anything..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    query_llm(input_text=prompt)
 
-# Enhanced Chat with Retrieval
-# if prompt := st.chat_input("Ask anything"):
-#     response = chat_with_rag(prompt)
 
-    with st.chat_message("assistant"):
-        # Stream the response for that "live" feel
-        stream = client.chat.completions.create(
-            model=CFG.BASE_MODEL,
-            messages=st.session_state.messages,
-            stream=True,
-            temperature=CFG.GENERATION_TEMPERATURE
-        )
-        response = st.write_stream(stream)
-    
-    st.session_state.messages.append({"role": "assistant", "content": response})
+    # Enhanced Chat with Retrieval
+    # if prompt := st.chat_input("Ask anything"):
+    #     response = chat_with_rag(prompt)

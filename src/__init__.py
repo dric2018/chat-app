@@ -14,7 +14,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(osp.join(CFG.LOGS_DIR, "run.log"))
+        # logging.FileHandler(osp.join(CFG.LOGS_DIR, "run.log"))
     ]
 )
 
@@ -26,7 +26,7 @@ parser.add_argument("--recreate", action="store_true", help="Full wipe and rebui
 args = parser.parse_args()
 
 client = OpenAI(
-    base_url=f"http://{CFG.SERVER_IP}:{CFG.VLLM_PORT}/v1",
+    base_url=f"http://localhost:{CFG.VLLM_PORT}/v1",
     api_key=CFG.VLLM_API_KEY,
 )
 

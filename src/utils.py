@@ -8,6 +8,29 @@ import sqlite3
 import sqlite_vec
 from sqlite_vec import serialize_float32
 
+import re
+
+def parse_llm_response(raw_response:str):
+    """
+    Regex to find the <think> block and the remaining text
+    """
+    # Try to extract Thinking Tags first (for Qwen3/DeepSeek-R1)
+    think_match = re.search(r'<think>(.*?)</think>(.*)', raw_response, re.DOTALL)
+    
+    if think_match:
+        thinking = think_match.group(1).strip()
+        answer = think_match.group(2).strip()
+    else:
+        # If no tags, the thinking is empty, the whole thing is the answer
+        thinking = "No internal reasoning provided by model."
+        answer = raw_response.strip()
+
+    # Clean up Markdown SQL blocks (Common in standard models)
+    # by removing ```sql ... ``` or just ``` ... ```
+    clean_sql = re.sub(r'```(?:sql)?\s*(.*?)\s*```', r'\1', answer, flags=re.DOTALL).strip()
+    
+    return thinking, clean_sql
+
 def check_stack_health():
     services = {
         "MLflow": f"http://{CFG.SERVER_IP}:{CFG.MLFLOW_PORT}/health",
