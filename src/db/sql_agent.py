@@ -1,4 +1,4 @@
-from __init__ import logger
+from __init__ import logger, client
 from config import CFG
 
 from openai import OpenAI
@@ -44,7 +44,6 @@ class SQLAgent:
         self.forbidden              = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE"]
         self.db_path                = db_path
         self.embedding_model_name   = embedding_model_name
-        self.client                 = OpenAI(base_url="http://vllm:8000/v1", api_key="token")
         self.results_limit          = CFG.SQL_MAX_LIMIT
 
         # Schema Metadata for the LLM
@@ -165,6 +164,9 @@ class SQLAgent:
             for token in clean_sql.flatten():
                 if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in self.forbidden:
                     return False, f"Security Violation: Forbidden keyword '{token.value}' detected."
+            
+            if "LIMIT" not in clean_sql:
+                clean_sql += f" LIMIT {CFG.SQL_MAX_LIMIT}"
 
             return True, "Valid"
         

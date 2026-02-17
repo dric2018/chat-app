@@ -22,7 +22,11 @@ dependencies = [
     "sqlalchemy",
     "plotly",
     "tomli",
+    "duckdb",
+    "unidecode",
+    "pytest",
     "requests",
+    "jupyterlab",
     "ipywidgets",
     "sentence-transformers"
 ]
@@ -49,7 +53,7 @@ gpu_image = "vllm/vllm-openai:latest"
 cpu_image = "openeuler/vllm-cpu:latest" # Official CPU-optimized build
 
 [tool.db]
-db_name='elections.db'
+db_name='elections.duckdb'
 
 [tool.setuptools]
 package-dir = {"" = "src"}

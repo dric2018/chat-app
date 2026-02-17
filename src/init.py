@@ -1,10 +1,8 @@
 from config import CFG
-import docker
 import platform
 import subprocess
 import os
 from utils import check_stack_health
-import requests
 import sys
 import time
 from __init__ import logger, args
@@ -23,10 +21,8 @@ def setup_nginx_config():
         
         location / {{
             
-        if ($http_authorization != "Bearer ")
-        {{
-            return 401;
-        }}
+            auth_basic "Restricted Testing Area";
+            auth_basic_user_file /etc/nginx/.htpasswd;
 
             proxy_pass http://streamlit-app:8501;
             proxy_http_version 1.1;
@@ -38,14 +34,17 @@ def setup_nginx_config():
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            
-            # Crucial for LLM streaming responses
+            proxy_cache_bypass $http_upgrade;
+
             proxy_buffering off;
             proxy_cache off;
 
         }}
 
         location /_stcore/stream {{
+            auth_basic "Restricted Testing Area";
+            auth_basic_user_file /etc/nginx/.htpasswd;
+                    
             proxy_pass http://streamlit-app:8501/_stcore/stream;
             proxy_http_version 1.1;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -67,7 +66,6 @@ def setup_nginx_config():
         f.write(nginx_conf)
     logger.info("Configuration files written successfully.")
     
-
 def detect_hardware():
     logger.info("Calling detect_hardware()...")
     
@@ -103,44 +101,6 @@ def add_to_env_file(hw:dict):
             f.write(f"VLLM_IMAGE={hw["image"]}\n")
             f.write(f"VLLM_DEVICE={hw["device"]}\n")
 
-def wait_for_vllm(
-        vllm_container:docker.models.container.Container=None,
-        url=f"http://{CFG.SERVER_IP}:{CFG.VLLM_PORT}/health", 
-        timeout=300,
-
-    ):
-    """Wait for vLLM to return 200 OK at the health endpoint."""
-    logger.info("Waiting for vLLM to finish initializing...")
-
-    if vllm_container:
-        while True:
-            vllm_container.reload()
-            health = vllm_container.attrs['State'].get('Health', {}).get('Status')
-            if health == 'healthy':
-                logger.info("vLLM is ready!")
-                break
-            if health == 'unhealthy':
-                logger.info("vLLM healthcheck failed!")
-                logger.info(vllm_container.logs().decode())
-                break
-            time.sleep(5)
-    else:
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            try:
-                response = requests.get(url)
-                if response.status_code == 200:
-                    logger.info("vLLM is up and healthy!")
-                    return True
-            except requests.exceptions.ConnectionError:
-                pass
-            
-            logger.info("Waiting for vLLM to initialize weights...")
-            time.sleep(5)
-        
-        raise TimeoutError("vLLM failed to start within the timeout period.")
-
-
 def run_stack():
     logger.info("Calling run_stack()...")
     if not os.environ.get("VIRTUAL_ENV"):
@@ -153,7 +113,6 @@ def run_stack():
         # Set/update env vars
         os.environ["NGINX_PORT"]    = CFG.NGINX_PORT
         os.environ["VLLM_PORT"]     = CFG.VLLM_PORT
-        os.environ["MLFLOW_PORT"]   = CFG.MLFLOW_PORT
         os.environ["NGINX_PORT"]    = CFG.NGINX_PORT
         os.environ["GRAFANA_PORT"]  = CFG.GRAFANA_PORT
         os.environ["UI_PORT"]       = CFG.UI_PORT
@@ -163,7 +122,6 @@ def run_stack():
         os.environ["DB_PATH"]       = CFG.DB_PATH   
         os.environ["PROMETHEUS_PORT"]= CFG.PROMETHEUS_PORT
         os.environ["HF_TOKEN"]      = CFG.HF_TOKEN
-        os.environ["MLFLOW_TRACKING_URI"] = CFG.MLFLOW_TRACKING_URI
 
         add_to_env_file(hw)
         setup_nginx_config()
@@ -183,72 +141,26 @@ def run_stack():
 
         # Standard Launch (Smart & Cached)
         logger.info(f"🐳 Launching stack...Device: {os.environ['VLLM_DEVICE']} ({platform.processor()})")
-        docker_client = docker.from_env()
 
         if args.reset:
             logger.warning("🧹 Hard Reset: Wiping containers and volumes...")            
-            
-            # device_requests = []
-            # if hw["device"]=="gpu":
-            #     device_requests = [
-            #         docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])
-            #     ]
-            
-            # docker_client.containers.prune()
-            # logger.info("Building vLLM container...")
-            # vllm_container = docker_client.containers.run(
-            #     image=hw["image"],
-            #     name="vllm",
-            #     detach=True,
-            #     ports={'8000/tcp': CFG.VLLM_PORT},
-            #     volumes={
-            #         os.path.expanduser('~/.cache/huggingface'): {'bind': '/root/.cache/huggingface', 'mode': 'rw'},
-            #         'models_volume_name': {'bind': '/root/.cache/huggingface', 'mode': 'rw'}
-            #     },
-            #      command=[
-            #         "--model", os.getenv("BASE_MODEL"),
-            #         "--host", "0.0.0.0",
-            #         "--dtype", "auto",
-            #         "--max-model-len", "1024",
-            #         "--trust-remote-code"
-            #     ],
-            #     environment={
-            #         "HF_TOKEN": os.getenv("HF_TOKEN")
-            #     },
-            #     shm_size="4gb",
-            #     # Hardware reservations (see x-gpu-config part in docker-compose.yml)
-            #     device_requests=device_requests,
-            #     network="backend-net", 
-            #     restart_policy={"Name": "unless-stopped"},
-            #     healthcheck={
-            #         "test": ["CMD", "curl", "-f", f"http://{CFG.SERVER_IP}:{CFG.VLLM_PORT}/health"],
-            #         "interval": 10 * 10**9,
-            #         "timeout": 30 * 10**9,
-            #         "retries": 20,
-            #         "start_period": 60 * 10**9
-            #     }
-            # )
-
-            # logger.info(vllm_container)
-            # if vllm_container is not None:
-            #     wait_for_vllm(vllm_container=vllm_container)
 
             if args.recreate:
                 logger.warning("Recreating containers and volumes...")            
                 
                 subprocess.run([
-                    "docker-compose", "up", "-d", "mlflow", "vllm",
+                    "docker-compose", "up", "-d", "vllm",
                     "--force-recreate",
                     "--remove-orphans"
                 ], env=os.environ, check=True) 
             else:
                 subprocess.run([
-                    "docker-compose", "up", "-d", "mlflow", "vllm",
+                    "docker-compose", "up", "-d", "vllm",
                     "--remove-orphans"
                 ], env=os.environ, check=True) 
 
             
-            logger.info("Successfully initiated fondations (MLflow and vLLM).")
+            logger.info("Successfully initiated vLLM container.")
 
         elif args.refresh:
             logger.info("🔍 Checking backend health before refresh...")
@@ -266,20 +178,6 @@ def run_stack():
                 ], check=True)
             
             return
-    
-
-        # DATA INGESTION
-        # Use a flag to skip if data already exists, or always run if 'args.reset'
-        # logger.info(f"💾 Preparing data ingestion...\n")
-        
-        # if args.reset or not os.path.exists(os.environ.get("DB_PATH", "elections.db")):
-        #     logger.info("📥 Starting Data Ingestion (PDF to DB)...")
-        #     subprocess.run([
-        #         "docker-compose", "run", "--rm", "ingestion-job"
-        #     ], env=os.environ, check=True)
-        #     logger.info("✅ Ingestion complete.")
-        # else:
-        #     logger.info("⏭️ skipping ingestion (Database already exists).")
 
         logger.info("📺 Building & launching Frontend...")
         subprocess.run(["docker-compose", "build", "streamlit-app"], check=True)

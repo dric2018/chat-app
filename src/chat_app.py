@@ -117,7 +117,7 @@ def query_llm(
             st.session_state.messages.append({"role": "assistant", "content": raw_content})
 
 
-st.title("📄 Chat CEI")
+st.title("📄 Chat App")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -148,7 +148,3 @@ for message in st.session_state.messages:
 if prompt := st.chat_input("Ask anything..."):
     query_llm(input_text=prompt)
 
-
-    # Enhanced Chat with Retrieval
-    # if prompt := st.chat_input("Ask anything"):
-    #     response = chat_with_rag(prompt)

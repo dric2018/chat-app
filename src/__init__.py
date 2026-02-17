@@ -23,7 +23,7 @@ parser.add_argument("--reset", action="store_true", help="Full wipe and rebuild 
 parser.add_argument("--refresh", action="store_true", help="Rebuild Streamlit UI only (keeps vLLM warm)")
 parser.add_argument("--recreate", action="store_true", help="Full wipe and rebuild of the stack + recreate")
 
-args = parser.parse_args()
+args, unknown = parser.parse_known_args()
 
 client = OpenAI(
     base_url=f"http://localhost:{CFG.VLLM_PORT}/v1",

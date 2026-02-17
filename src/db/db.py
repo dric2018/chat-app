@@ -1,15 +1,21 @@
 from __init__ import logger
 from config import CFG
-import sqlite3
+import duckdb
 
 import pdfplumber
 import pandas as pd
-import sqlite3
-import sqlite_vec
 
 import tomllib
 
 from sentence_transformers import SentenceTransformer
+
+
+def get_connection():
+    return duckdb.connect(
+        CFG.DB_PATH,
+        read_only=True
+    )
+
 
 class ElectionDB:
     def __init__(
@@ -23,44 +29,44 @@ class ElectionDB:
             self.db_config = tomllib.load(f)["tool"]["db"]
 
     def init_db(db_path:str):
-        conn = sqlite3.connect(db_path)
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        
-        # Create normalized relational tables
-        conn.execute("DROP TABLE IF EXISTS turnout")
-        conn.execute("DROP TABLE IF EXISTS results")
-        conn.execute("""
-            CREATE TABLE turnout (
-                id INTEGER PRIMARY KEY, region TEXT, circonscription TEXT, 
-                commune TEXT, registered INT, votants INT, expressed INT, 
-                invalid_ballots INT, participation_rate REAL, abstention_rate REAL
-            )""")
-        conn.execute("""
-            CREATE TABLE results (
-                id INTEGER PRIMARY KEY, turnout_id INT, candidate_name TEXT, 
-                party_group TEXT, votes INT, votes_pct REAL, is_winner INT,
-                FOREIGN KEY(turnout_id) REFERENCES turnout(id)
-            )""")
-        
-        # Create table with total numbers extracted from pdf data !!!
-        
-        # Creating indexed for query optimization
-        conn.execute("""CREATE INDEX idx_results_votes ON results(votes DESC);""")
-        conn.execute("""CREATE INDEX idx_results_party ON results(party);""")
-        conn.execute("""CREATE INDEX idx_turnout_commune ON turnout(commune);""")
-        
-        # Create the Vector Search Table (using vec0 virtual table)
-        conn.execute("DROP TABLE IF EXISTS results_vec")
-        conn.execute("CREATE VIRTUAL TABLE results_vec USING vec0(embedding float[384], row_id INTEGER PRIMARY KEY)")
-        
-        # Create a table for text and a virtual table for vector search
-        # conn.execute("CREATE TABLE docs (id INTEGER PRIMARY KEY, content TEXT)")
-        # conn.execute("CREATE VIRTUAL TABLE vec_index USING vec0(embedding float[4096], content_id int)")
+        conn = duckdb.connect(CFG.DB_PATH)
 
+        conn.execute(f"""
+            CREATE OR REPLACE TABLE dim_region AS
+            SELECT * FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/dim_region.parquet')
+        """)
+
+        conn.execute(f"""
+            CREATE OR REPLACE TABLE dim_candidate AS
+            SELECT * FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/dim_candidate.parquet')
+        """)
+
+        conn.execute(f"""
+            CREATE OR REPLACE TABLE dim_party AS
+            SELECT * FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/dim_party.parquet')
+        """)
+
+        conn.execute(f"""
+            CREATE OR REPLACE TABLE fact_results AS
+            SELECT * FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/fact_results.parquet')
+        """)
+
+        conn.execute("""
+            ALTER TABLE fact_results ADD COLUMN IF NOT EXISTS is_winner BOOLEAN;
+        """)
+
+        conn.execute("""
+            UPDATE fact_results
+            SET is_winner = (rank = 1);
+        """)
+
+        with open("src/db/views.sql") as f:
+            conn.execute(f.read())
+
+        conn.close()
         return conn
     
-    def ingest_pdf(self, pdf_path:str):
+    def get_data_from_pdf(self, pdf_path:str):
         all_tables      = []
         all_tables_df   = []
         settings        = {
@@ -104,8 +110,6 @@ class ElectionDB:
             print(f" Error while merging data: {e}")
             return None, None, all_tables, all_tables_df
         
-
-
     def ingest_data(self, conn, df):
         
         model = SentenceTransformer(self.embedding_model_name)

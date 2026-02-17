@@ -1,7 +1,7 @@
 import pytest
 import sqlite3
 from unittest.mock import MagicMock, patch
-from src.sql_agent import SQLAgent
+from src.db.sql_agent import SQLAgent
 
 @pytest.fixture
 def agent(tmp_path):

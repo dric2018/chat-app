@@ -8,8 +8,14 @@ import sqlite3
 import sqlite_vec
 from sqlite_vec import serialize_float32
 
+import unidecode
 import re
 
+
+def validate_tables(sql):
+    if not any(view in sql for view in CFG.ALLOWED_TABLES):
+        raise ValueError("Unauthorized table access.")
+    
 def parse_llm_response(raw_response:str):
     """
     Regex to find the <think> block and the remaining text
@@ -33,10 +39,9 @@ def parse_llm_response(raw_response:str):
 
 def check_stack_health():
     services = {
-        "MLflow": f"http://{CFG.SERVER_IP}:{CFG.MLFLOW_PORT}/health",
-        "Nginx": f"http://{CFG.SERVER_IP}:{CFG.NGINX_PORT}",
         "Prometheus": f"http://{CFG.SERVER_IP}:{CFG.PROMETHEUS_PORT}/-/healthy",
         "vLLM": f"http://{CFG.SERVER_IP}:{CFG.VLLM_PORT}/health",
+        "Nginx": f"http://{CFG.SERVER_IP}:{CFG.NGINX_PORT}",
     }
     
     up = False
@@ -118,3 +123,5 @@ def retrieve_context(
     return "\n".join([r[0] for r in results])
 
 
+def normalize_text(text):
+    return unidecode(text.lower().strip())
