@@ -91,7 +91,7 @@ $ sudo apt-get update && sudo apt-get install -y python3.13 python3.13-venv pyth
 Create a virtual environment (venv) on the host machine
 ```bash
 $ python3.13 -m venv .venv # creating the venv and installing project dependencies
-$ source .venv/bin/activate && pip install . # then run this to install packages within venv
+$ source .venv/bin/activate && pip install -e . # then run this to install packages within venv
 ```
 
 Once these are successfully installed, you can clone this repository with:
@@ -104,9 +104,8 @@ $ git clone git@github.com:dric2018/chat-app.git # and cd into the chat-app fold
 
 The LLM orchestration dependencies can be installed by running the `init.py` script as follows:
 ```bash
-(.venv) $ python3.13 src/init.py # run the init script
+(.venv) $ python -m src.init --reset --recreate # run the init script
 # this will create the docker containers for running the chat-app
-# it will also create and populate the database by ingesting the document data.
 ```
 
 Once the Stack is up and running, you will be able to access each service via:
@@ -147,23 +146,21 @@ Data base tables are categorized int:
 1. Dimentions: Region, Party, Candidate
 2. Facts: Turnout (separate), Results (central)
 
-`dim_party`
+`party`
 ```sql
 party_id INTEGER PRIMARY KEY
 party_name TEXT
-party_short TEXT
 party_normalized TEXT
 ```
 
-`dim_candidate`
+`candidate`
 ```sql
 candidate_id INTEGER PRIMARY KEY
 candidate_name TEXT
-candidate_normalized TEXT
 party_id INTEGER
 ```
 
-`fact_results`
+`results`
 ```sql
 result_id INTEGER PRIMARY KEY
 region_id INTEGER
@@ -172,18 +169,9 @@ votes INTEGER
 vote_percent FLOAT
 elected BOOLEAN
 rank INTEGER
-source_page INTEGER
-source_row_hash TEXT
 ```
-This fact has indexes:
 
-- region_id
-- candidate_id
-- party_id (via join)
-- elected
-- votes DESC
-
-`fact_turnout`
+`turnout`
 ```sql
 turnout_id INTEGER PRIMARY KEY
 region_id INTEGER
@@ -193,13 +181,12 @@ valid_votes INTEGER -- exprimés
 blank_votes INTEGER
 null_votes INTEGER
 participation_rate FLOAT
-source_page INTEGER
 ```
 II. Vector Schema 
 
 For RAG, we need a "contextual chunk" table. Instead of embedding raw rows, we will embed a human-readable summary of the table row.
 
-RAG-ready Table: `fact_results_rag`
+RAG-ready Table: `results_rag`
 ```sql
 row_id INTEGER PRIMARY KEY
 entity_type TEXT  -- result, turnout
@@ -218,73 +205,13 @@ entity_type TEXT
 entity_id INTEGER
 ```
 
-Instead of exposing raw tables, we expose curated views:
+Instead of exposing raw tables, we expose curated views (see src/db/views.sql).
 
-```sql
---- winners view
-CREATE VIEW vw_winners AS
-SELECT
-    r.region_name,
-    c.candidate_name,
-    p.party_name,
-    f.votes,
-    f.vote_percent
-FROM fact_results f
-JOIN dim_candidate c USING(candidate_id)
-JOIN dim_party p USING(party_id)
-JOIN dim_region r USING(region_id)
-WHERE f.is_winner = TRUE;
+To create and populate the database, run the `notebooks/pdf_data_extraction.ipynb` notebook to generate the required .parquet files (source of truth) and then run the `election_db.py` script:
 
---- seats per party
-CREATE VIEW vw_party_seats AS
-SELECT
-    p.party_name,
-    COUNT(*) AS seats
-FROM fact_results f
-JOIN dim_candidate c USING(candidate_id)
-JOIN dim_party p USING(party_id)
-WHERE f.is_winner = TRUE
-GROUP BY p.party_name;
-
---- turnout per region
-CREATE VIEW vw_turnout AS
-SELECT
-    r.region_name,
-    t.registered,
-    t.voters,
-    t.valid_votes,
-    t.participation_rate
-FROM fact_turnout t
-JOIN dim_region r USING(region_id);
-
-
+```bash
+(.venv) $ python -m src.db.election_db
 ```
-
-```sql
-CREATE TABLE dim_region AS
-SELECT * FROM read_parquet('dim_region.parquet');
-
-CREATE TABLE dim_party AS
-SELECT * FROM read_parquet('dim_party.parquet');
-
-CREATE TABLE dim_candidate AS
-SELECT * FROM read_parquet('dim_candidate.parquet');
-
-CREATE TABLE fact_results AS
-SELECT * FROM read_parquet('fact_results.parquet');
-
-CREATE TABLE fact_turnout AS
-SELECT * FROM read_parquet('fact_turnout.parquet');
-
---- We precompute
-ALTER TABLE fact_results ADD COLUMN is_winner BOOLEAN;
-
-UPDATE fact_results
-SET is_winner = (rank = 1);
-
-```
-
-
 
 #### Base LLMs
 CPU:
@@ -293,7 +220,7 @@ CPU:
 - Qwen/Qwen3-1.7B ( ✅ )
     - MAX_TOKENS = 1024
 
-- Qwen/Qwen3-4B-Instruct-2507 
+- Qwen/Qwen3-4B-Instruct-2507 ( ❌ )
 - facebook/opt-125m ( ❌ )
 
 #### 🛡️ Adversarial Safety & Guardrail Tests (Requirement C)
@@ -315,13 +242,10 @@ If the query cannot be resolved via the election_results table:
 ### Hybrid Router (SQL + RAG for fuzziness, narrative, grounding)
 TBA
 
-### Improved Agentic (clarification + disambiguation + multi-step)
-TBA
+### Observability
+The observability aspects were taken care of during the design and initialization of the LLM stack by leveraging out containerized environment.
 
-### Advanced (observability + evaluation + reliability)
-TBA
 
-### ⚠️ Troubleshooting
-TBA 
+
 # Credits and Acknowledgement
 - The project was implemented with partial assistance from LLMs (Qwen3-8b, Gemma-3-12b)

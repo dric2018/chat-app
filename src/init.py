@@ -2,10 +2,9 @@ from config import CFG
 import platform
 import subprocess
 import os
-from utils import check_stack_health
+from utils import check_stack_health, init_logging, get_args
+from src import logger
 import sys
-import time
-from __init__ import logger, args
 
 def setup_nginx_config():
     """Generates Nginx and Prometheus configs based on pyproject.toml."""
@@ -102,6 +101,10 @@ def add_to_env_file(hw:dict):
             f.write(f"VLLM_DEVICE={hw["device"]}\n")
 
 def run_stack():
+
+    init_logging()
+    args = get_args()
+
     logger.info("Calling run_stack()...")
     if not os.environ.get("VIRTUAL_ENV"):
         logger.warning("⚠️ You are not running in a virtual environment. Highly recommended!!!")

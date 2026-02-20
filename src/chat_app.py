@@ -1,15 +1,18 @@
-from __init__ import logger, client
+from __init__ import logger
 from config import CFG
 
+import plotly.express as px
+
 import re
-import sqlite3
 
 import streamlit as st
+from db.sql_agent import SQLAgent, QueryIntent, HybridAgent
 
-from utils import retrieve_context, parse_llm_response
+from utils import parse_llm_response
 
-# Fix base URL for internal (docker) communication
-client.base_url = f"http://vllm:{CFG.VLLM_PORT}/v1"
+CFG.client.base_url = f"http://vllm:{CFG.VLLM_PORT}/v1"
+
+agent = HybridAgent()
 
 def parse_thinking_stream(stream):
     thinking_expander = st.expander("Show Reasoning", expanded=True)
@@ -39,31 +42,7 @@ def parse_thinking_stream(stream):
             response_container.markdown(full_response)
             
     return full_thinking, full_response
-
-def chat_with_rag(
-        user_input:str, 
-        db_conn:sqlite3.Connection
-    ):
     
-    # R: Retrieval
-    context = retrieve_context(db_conn, user_input)
-    
-    # A: Augmentation (Chat Template)
-    prompt = f"""Use the following context to answer the user's request.
-    Context:
-    {context}\n
-    Request: {user_input}
-    Answer:"""
-
-    # G: Generation via vLLM
-    response = client.chat.completions.create(
-        model=CFG.BASE_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=CFG.GENERATION_TEMPERATURE
-    )
-    
-    return response.choices[0].message.content
-
 def query_llm(
         input_text:str, 
         is_stream:bool=CFG.IS_STREAM
@@ -73,12 +52,12 @@ def query_llm(
         {"role": "user", "content": input_text}
     )
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(input_text)
 
     if is_stream:
         with st.chat_message("assistant"):
             # Stream the response for that "live" feel
-            stream = client.chat.completions.create(
+            stream = CFG.client.chat.completions.create(
                 model=CFG.BASE_MODEL,
                 messages=st.session_state.messages,
                 stream=True,
@@ -93,28 +72,36 @@ def query_llm(
     else:
         with st.chat_message("assistant"):
             with st.spinner("Analyzing election data..."):
-                response = client.chat.completions.create(
-                    model=CFG.BASE_MODEL,
-                    messages=st.session_state.messages,
-                    stream=False,
-                    temperature=CFG.GENERATION_TEMPERATURE,
-                    max_tokens=CFG.MAX_TOKENS
-                )
-            
-            raw_content = response.choices[0].message.content
-            
-            # Separate Thinking and SQL using your parser
-            thinking, sql_query = parse_llm_response(raw_content)
+                response = agent.execute(input_text)
+        
+                if response["type"] == "data":
+                    st.write(response["interpretation"])
+                    
+                    if response["intent"] == QueryIntent.CHART:
+                        df = response["data"]
+                        # Dynamically pick columns: usually 1st is category, 2nd is value
+                        fig = px.bar(df, x=df.columns[0], y=df.columns[1], 
+                                    title=f"Generated chart")
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                        with st.expander("View Raw Data"):
+                            st.dataframe(df)
+                    else:
+                        raw_content = response.choices[0].message.content
+                        
+                        # Separate Thinking and SQL using your parser
+                        thinking, sql_query = parse_llm_response(raw_content)
 
-            # Show thinking in a collapsible box
-            if thinking:
-                with st.expander("Show Reasoning"):
-                    st.write(thinking)
+                        # Show thinking in a collapsible box
+                        if thinking:
+                            with st.expander("Show Reasoning"):
+                                st.write(thinking)
 
-            # Format the SQL
-            st.code(sql_query, language="sql")
+                        # Format the SQL
+                        st.code(sql_query, language="sql")
 
-            st.session_state.messages.append({"role": "assistant", "content": raw_content})
+                st.session_state.messages.append({"role": "assistant", "content": raw_content})
+
 
 
 st.title("📄 Chat App")
@@ -145,6 +132,6 @@ for message in st.session_state.messages:
             # Standard user message or fallback
             st.markdown(content)
 
-if prompt := st.chat_input("Ask anything..."):
+if prompt := st.chat_input("Ask anything about the 2025 legislative elections..."):
     query_llm(input_text=prompt)
 

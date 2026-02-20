@@ -1,82 +1,60 @@
-from __init__ import logger, client
+from __init__ import logger
 from config import CFG
 
-from openai import OpenAI
+import duckdb
 
-import pandas as pd
-from prometheus_client import Counter, Histogram, start_http_server
-
-import sqlite3
-import sqlparse
 from enum import Enum
 
-class QueryIntent(Enum):
-    AGGREGATION     = "aggregation" # e.g., "Total votes in Region X"
-    RANKING         = "ranking"           # e.g., "Top 3 candidates by percentage"
-    CHART           = "chart"               # e.g., "Show me the distribution of votes"
-    GENERAL         = "general"           # Standard lookup
-    INVALID         = "invalid"           # Out of scope
+from src.db.election_db import ElectionDB
 
+import sqlparse
+
+import time
+
+class QueryIntent(Enum):
+    AGGREGATION = "aggregation"
+    RANKING     = "ranking"
+    CHART       = "chart"
+    GENERAL     = "general"
+    INVALID     = "invalid"
 
 class SQLAgent:
-    """
-    Example Usage:
-        executor = SQLAgent("elections.db")
-        Adversarial Test: executor.execute("DROP TABLE election_results;") -> Blocks
-
-    Example Usage:
-        agent = SQLAgent("elections.db")
-        Valid queries:
-        print(agent.execute("Who won in Commune X?"))       # Triggers SQL generation
-        Adversarial Tests: 
-        executor.execute("DROP TABLE election_results;") -> Blocks
-        print(agent.execute("What is the weather in Paris?")) # Triggers topic block
-        Adversarial Test: agent.execute("Delete or modify results table") -> # Triggers topic block
-
-
-    """
     def __init__(
             self, 
             db_path:str,
-            embedding_model_name:str="google/gemma-2b"
+            model_endpoint:str=CFG.VLLM_BASE_URL
         ):
 
-        self.forbidden              = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE"]
-        self.db_path                = db_path
-        self.embedding_model_name   = embedding_model_name
-        self.results_limit          = CFG.SQL_MAX_LIMIT
+        self.db_path    = db_path
+        self.model_name = CFG.BASE_MODEL
+        self.client     = CFG.client
+        self.db_client  = ElectionDB()
+        
+        self.forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE"]
+        self.results_limit = CFG.SQL_MAX_LIMIT
 
         # Schema Metadata for the LLM
         self.schema_context = """
-            Table: turnout (columns: region, circonscription, commune, registered, votants, expressed, invalid_ballots, participation_rate, abstention_rate)
-            Table: results (columns: candidate_name, party_group, votes_count, votes_pct, is_winner, turnout_id)
-            Relationship: results.turnout_id = turnout.id
+            Tables:
+            - Table: turnout (columns: region, circonscription, commune, registered, votants, expressed, invalid_ballots, participation_rate, abstention_rate)
+            - Table: results (columns: candidate_name, party_group, votes_count, votes_pct, is_winner, turnout_id)
+            
+            Views
+            - vw_results (RESULT_ID, REGION_NAME, CIRCONSCRIPTION_TITLE, CANDIDATE_NAME, PARTY_NAME, SCORES, PCT_SCORE, IS_WINNER)
+            - vw_turnout (REGION_NAME, CIRC_NAME, REGISTERED, BALLOTS_CAST, TURNOUT_PCT)
+            - vw_rag_descriptions (Used for semantic search, contains text_chunk)
             """
 
-        # Metrics to track
-        self.SQL_VIOLATIONS = Counter(
-            'rag_sql_security_violations_total', 
-            'Total number of blocked malicious or invalid SQL queries',
-            ['reason'] # e.g., 'multiple_statements', 'forbidden_keyword'
-        )
+        self.metrics = {
+            "violations": 0,
+            "total_latency": 0.0,
+            "intents": {intent.value: 0 for intent in QueryIntent}
+        }
 
-        self.QUERY_LATENCY = Histogram(
-            'rag_query_duration_seconds', 
-            'Time spent generating and executing SQL'
-        )
-
-
-        self.INTENT_COUNTER = Counter(
-            'rag_query_intent_total', 
-            'Total queries by intent type', 
-            ['intent']
-        )
-
-
-    def _get_intent(self, user_prompt:str):
+    def _get_intent(self, user_prompt:str)-> QueryIntent:
         intent_prompt = f"""
         Classify the user's election query into one category:
-        - AGGREGATION: Sums, counts, averages (e.g., 'total votes', 'turnout average').
+        - AGGREGATION: Sums, counts, averages (e.g., 'total votes/scores', 'turnout average').
         - RANKING: Comparisons, top/bottom lists (e.g., 'who won', 'best party').
         - CHART: Requests for distribution, trends, or visualizations.
         - GENERAL: Simple fact retrieval.
@@ -85,59 +63,63 @@ class SQLAgent:
         Query: "{user_prompt}"
         Respond ONLY with the category name.
         """
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": intent_prompt}]
-        )
-        label = response.choices[0].message.content.strip().upper()
         try:
-            return QueryIntent[label]
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": intent_prompt}],
+                temperature=CFG.GENERATION_TEMPERATURE
+            )
+            
+            label = response.choices[0].message.content.strip().upper()
+            intent = QueryIntent[label] if label in [i.name for i in QueryIntent] else QueryIntent.INVALID
+            
+            self.metrics["intents"][intent.value] += 1
+            
+            return intent        
+
         except KeyError:
             return QueryIntent.INVALID
 
-
-    def _is_relevant(self, user_prompt:str):
-        """Intent Classification (Gatekeeper)"""
-        check_prompt = f"""
-        Determine if this query is about election results, turnout, or political candidates.
-        Query: "{user_prompt}"
-        Respond ONLY with 'YES' or 'NO'.
-        """
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": check_prompt}]
-        )
-        return "YES" in response.choices[0].message.content.upper()
-
-    def generate_sql(self, user_prompt:str, intent:QueryIntent):
+    def generate_sql(self, user_prompt:str, intent:QueryIntent, history):
         """Restricted SQL Generation"""
 
         intent_instructions = {
             QueryIntent.AGGREGATION: "Use GROUP BY and SUM/AVG. Ensure results are numeric.",
-            QueryIntent.RANKING: "Use ORDER BY votes DESC and LIMIT 10.",
+            QueryIntent.RANKING: f"Use ORDER BY votes DESC and LIMIT {CFG.SQL_MAX_LIMIT}.",
             QueryIntent.CHART: "Return exactly two columns: a label (e.g., party) and a numeric value."
         }
+
         generation_prompt = f"""
-        You are a Sata Scientist with deep expertise in elections data and an SQL Expert. 
-        Given this schema:
+        You are a Data Scientist with deep expertise in elections data management, exploration, and an SQL Expert. 
+        Given this schema as context:
         {self.schema_context}
         Intent: {intent.value}. {intent_instructions.get(intent, "")}
         Generate a single valid SQL SELECT statement. 
         - Use JOINs where necessary.
-        - Never use {self.forbidden} statements!
+        - Never use {self.forbidden} statements. HARD CONSTRAINT!
         - If the question is too vague, return: SELECT 'NO_DATA'
         - Always include a LIMIT {self.results_limit}.
         - Output ONLY the SQL string.
+        
+        Exceptions:
+            - If the query is ambiguous, you may ask for clarifications
+            Examples:
+                - "Who won in Tiapoum?" (ambiguous; a win is equivalent to being elected)
+                - "Show turnout in Abidjan." (scope ambiguity but looking for all related circonscription)
+                - "Top 5 in Grand-Bassam."(potential naming collisions)
         """
         
         response = self.client.chat.completions.create(
-            model=self.embedding_model_name,
+            model=self.model_name,
             messages=[
                 {"role": "system", "content": generation_prompt},
                 {"role": "user", "content": user_prompt}
-            ]
+            ],
+            temperature=CFG.GENERATION_TEMPERATURE,
+            stream=CFG.IS_STREAM,
+            max_tokens=CFG.MAX_TOKENS
         )
-        return response.choices[0].message.content.strip().replace("```sql", "").replace("```", "")
+        return response.choices[0].message.content.strip().replace("```sql", "").replace("```", "").split(';')[0]
 
     def validate_sql(self, sql:str):
         """
@@ -146,8 +128,6 @@ class SQLAgent:
         """
         sql = sql.upper()
         try:
-            # Checking for multiple statements (Piggybacking attack)
-            # e.g., "SELECT * FROM results; DROP TABLE turnout;"
             parsed = sqlparse.parse(sql)
             if len(parsed) > 1:
                 return False, "Security Violation: Multiple queries detected."
@@ -163,6 +143,7 @@ class SQLAgent:
             # We check every token for forbidden keywords that might bypass get_type()
             for token in clean_sql.flatten():
                 if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in self.forbidden:
+                    self.metrics["violations"] += 1
                     return False, f"Security Violation: Forbidden keyword '{token.value}' detected."
             
             if "LIMIT" not in clean_sql:
@@ -174,77 +155,91 @@ class SQLAgent:
             return False, f"Parsing Error: {str(e)}"
 
     def execute(self, user_prompt:str):
-        # Relevance Check
-        if not self._is_relevant(user_prompt):
-            return self._format_not_found(user_prompt, "Topic not related to election data.")
-
-        # Generate and Validate SQL
+        start_time = time.time()
+        
         intent = self._get_intent(user_prompt)
-        self.INTENT_COUNTER.labels(intent=intent.value).inc()
 
-        if intent == QueryIntent.CHART:
-            # Ensure SQL always returns ['label', 'value']
-            # This allows a single Grafana Bar Chart panel to stay "fixed" 
-            # while the data inside it changes based on the user's prompt.
-            return {"type": "chart_data", "data": df.to_dict(orient='records')}
+        if intent == QueryIntent.INVALID:
+            return self._format_not_found(user_prompt, "Invalid Intent")
 
+        generated_sql = self.generate_sql(user_prompt, intent)
         
-        sql = self.generate_sql(user_prompt, intent)
+        if not self.validate_sql(generated_sql):
+            logger.error(f"SQL Violation Attempted: {generated_sql}")
+            return {"type": "text", "content": "Security violation."}
 
-        is_safe, message = self.validate_sql(sql)
-
-        if not is_safe:
-            # Log this as a security event
-            logger.info(f"ALERT: {message}")
-            
-            # Increment the Prometheus counter
-            self.SQL_VIOLATIONS.labels(reason=message.split(":")[0]).inc()
-            
-            return self._format_not_found(
-                user_prompt, 
-                f"I attempted to generate a query, but it failed security validation.\nSecurity Block: {message}"
-            )
-        
-        # Execute query
         try:
-            # Open db in Read-Only mode
-            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
-            cursor = conn.cursor()
-            
-            # Auto-append LIMIT if missing
-            if "LIMIT" not in sql.upper():
-                sql = sql.rstrip(';') + f" LIMIT {self.results_limit}"
+            with duckdb.connect(self.db_path, read_only=True) as conn:
+                df = conn.execute(generated_sql).df()
                 
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-            # pd.read_sql_query handles the cursor and column names automatically
-            df = pd.read_sql_query(sql, conn)
-            conn.close()
+            if df.empty:
+                return {"type": "text", "content": "No data found."}
+                            
+            self.metrics["total_latency"] += (time.time() - start_time)
 
-            if not rows or (len(rows) == 1 and rows[0][0] == 'NO_DATA'):
-                return self._format_not_found(user_prompt, f"Query executed: {sql}")
-
-            return self._interpret_results(user_prompt, rows)
-
+            return {
+                "type": "data",
+                "intent": intent,
+                "data": df,
+                "interpretation": self._interpret_results(user_prompt, df.values.tolist(), df.columns.tolist())
+            }  
+              
         except Exception as e:
-            return self._format_not_found(user_prompt, f"Database Error: {str(e)}")
+            logger.error(f"Execution Error: {e}")
+            return f"I encountered an error analyzing the data: {e}"
 
-    def _interpret_results(self, user_prompt:str, rows):
-        """Converts raw SQLite rows into a natural language answer."""
-        interp_prompt = f"User asked: {user_prompt}\nData found: {rows}\nAnswer concisely:"
-        res = self.client.chat.completions.create(
+    def _interpret_results(self, user_prompt: str, rows):
+        if not rows:
+            return "I found no data matching your request."
+        
+        interp_prompt = f"User asked: {user_prompt}. Data results: {rows}. Summarize as a natural response."
+        response = self.client.chat.completions.create(
             model=self.model_name,
             messages=[{"role": "user", "content": interp_prompt}]
         )
-        return res.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip()
 
     def _format_not_found(self, prompt:str, logic_path):
         """Standardized failure response per your requirements."""
         return (
             f"**Not found in the provided PDF dataset.**\n\n"
+            f"User asked: {prompt}\n\n"
             f"*Attempted:* {logic_path}\n"
-            f"*Suggestions:* \n"
-            f"- Try specifying a specific Commune or Region.\n"
-            f"- Use candidate last names instead of full names.\n"
-            f"- Ask specifically about 'votes', 'turnout', or 'participation'."
         )
+
+class HybridAgent(SQLAgent):
+    
+    def __init__(self, db_path:str, model_endpoint:str = CFG.VLLM_BASE_URL):
+        super().__init__(db_path, model_endpoint)
+    
+        self.db_client = ElectionDB(db_path=db_path)
+
+    def route(self, user_prompt: str):
+        """Decide between SQL (analytics) and RAG (narrative/fuzzy)."""
+        routing_prompt = f"""
+        Determine the best system for this query: 'SQL' for analytics (counts, rankings, aggregations, chart, any analytics-based query) or 'RAG' for narrative fact lookup (who won, what happened).
+        Query: "{user_prompt}"
+        Respond ONLY with 'SQL' or 'RAG'.
+        """
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[
+                {"role": "system", "content": routing_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=CFG.GENERATION_TEMPERATURE,
+            stream=CFG.IS_STREAM,
+            max_tokens=CFG.MAX_TOKENS
+        )
+
+        path = response.choices.message.content.strip().upper()
+
+        if path == 'SQL':
+            return self.execute(user_prompt) # Uses the SQL path
+
+        elif path == 'RAG':
+            context_chunks = self.db_client.vector_search(user_prompt)
+            # Feed chunks to an LLM for interpretation
+            return self._interpret_rag_results(user_prompt, context_chunks)
+        else:
+            return self._format_not_found(user_prompt, "Routing Error")

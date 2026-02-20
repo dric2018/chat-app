@@ -7,6 +7,8 @@ import os.path as osp
 from pathlib import Path
 from pprint import pprint
 
+from openai import OpenAI
+
 def get_project_root() -> Path:
     """Finds the root by looking for a marker file."""
     current_path = Path(__file__).resolve()
@@ -18,10 +20,10 @@ def get_project_root() -> Path:
     return current_path.parent
 
 class CFG:
-    PROJECT_ROOT            = get_project_root()    
+    PROJECT_ROOT            = get_project_root()
     LOGS_DIR                = osp.join(PROJECT_ROOT, "logs")
     DATA_DIR                = osp.join(PROJECT_ROOT, "data")
-    PROCESSED_DATA_DIR      = osp.join(DATA_DIR, "procesed")
+    PROCESSED_DATA_DIR      = osp.join(DATA_DIR, "processed")
 
     # Server settings
     UI_PORT                 = os.getenv("UI_PORT", 8501)
@@ -39,18 +41,35 @@ class CFG:
     # DB Paths
     DB_DIR                  = osp.join(PROJECT_ROOT, "storage/duckdb")
     DB_NAME                 = "elections.duckdb"
-    DB_PATH                 = os.getenv("DB_PATH", f"{DB_DIR}/{DB_NAME}")
+    DB_PATH                 = osp.join(DB_DIR, DB_NAME)
     
     # SQL Guardrails
-    ALLOWED_TABLES          = ["vw_winners", "vw_party_seats", "vw_turnout"]
-    SQL_MAX_LIMIT           = 50
+    ALLOWED_TABLES          = ["vw_winners", 
+                               "vw_party", 
+                               "vw_turnout", 
+                               "vw_results", 
+                               "vw_rag_descriptions"
+                               ]
+    # DB
+    SQL_MAX_LIMIT = TOP_K    = 20
     
     # LLM (vLLM) Settings
     IS_STREAM               = True
     BASE_MODEL              = os.getenv("BASE_MODEL", "Qwen/Qwen3-1.7B")
+    EMBEDDING_MODEL_NAME    = "google/embeddinggemma-300m" #"sentence-transformers/all-MiniLM-L6-v2" (384d)
     MODEL_PROVIDER          = "openai"
     RELEVANCE_THRESHOLD     = 0.8 # For intent classification
     GENERATION_TEMPERATURE  = 0.0 # setting to 0 for consistent generations
     MAX_TOKENS              = 1024
-    CHUNK_SIZE              = 1024
+    CHUNK_SIZE              = 256
     CHUNK_OVERLAP           = 100
+
+    client = OpenAI(
+        base_url=f"http://localhost:{VLLM_PORT}/v1",
+        api_key=VLLM_API_KEY,
+    )
+
+os.chdir(CFG.PROJECT_ROOT)
+
+if __name__=="__main__":
+    pprint(vars(CFG))

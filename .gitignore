@@ -1,6 +1,5 @@
 .env
 logs/
-data/
 storage/
 notebooks/mlflow.db
 
