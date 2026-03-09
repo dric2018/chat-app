@@ -31,6 +31,7 @@ import sqlparse
 
 import time
 from typing import Tuple, Dict, List, Any, Literal
+import traceback
 
 db_client = ElectionDB()
 
@@ -124,7 +125,6 @@ class Agent(abc.ABC):
         self.generation_prompt  = ""
         # self.messages = [] # will have to be moved to db for safety
 
-
         # Default agent tools
         self.tools = self._collect_tools()
 
@@ -176,9 +176,8 @@ class Agent(abc.ABC):
                 pass
                 # return {"type": "error", "content": "The query does not appear to be election-related."}
 
-                yield from self.process_query(user_prompt, intent)
-                self.metrics["total_latency"] += (time.time() - start_time)
-                return
+            yield from self.process_query(user_prompt, intent)
+            self.metrics["total_latency"] += (time.time() - start_time)
                                 
         except SecurityViolationError as e:
             self.metrics["violations"] += 1
@@ -193,10 +192,12 @@ class Agent(abc.ABC):
             return 
 
         except (DatabaseConnectionError, Exception) as e:
-            logger.critical(f"SYSTEM ERROR: {e}")
+            logger.critical(f"SYSTEM ERROR: {e}", exc_info=True)
             return 
         except Exception as e:
             logger.error(f"Could not get agent's answer. {e}", exc_info=True)
+            yield {"type": "error", "content": f"Could not get agent's answer. {e}"}
+            return
 
     def _get_intent(self, user_prompt:str)-> QueryIntent:
         logger.info("Formatting input to LLM")
@@ -775,10 +776,8 @@ class RAGAgent(Agent):
         
         sys_prompt = f"""
         You are an Election Specialist. 
-        Use the search tools to find relevant facts that can help answer the user's request based on the identified intent.
-
+        Use the search tools to find relevant facts that can help answer the user's request based on the identified intent.\n
         Intent: {intent.value}\n
-
         Exceptions:
             - If the query is too broad or ambiguous, 1) Call search_database. 2) Ask the user for clarification. 3) Present the most relevant matches from the search results as options."
             Example of vague queries:
@@ -828,24 +827,32 @@ class RAGAgent(Agent):
                         If there are multiple matches, ask the user to specify which one they meant.
                         Format your response as a polite question with the options as bullet points.
                         """
+                    else:
+                        clarification_prompt = str(observation)
 
-                        messages.extend([
-                            response, 
-                            ToolMessage(content=clarification_prompt, tool_call_id=call_id)
-                        ])
-                
+
+                    messages.append(
+                        ToolMessage(content=clarification_prompt, tool_call_id=call_id)
+                    )
+                yield {"type": "status", "content": "Synthesizing final answer..."}               
                 final_answer = self.llm_with_tools.invoke(messages)
-                return {
+                
+                yield {
                     "type": "text",
                     "intent": intent,
                     "content": final_answer.content,
                     # "options": search_results
                 }
             else:
-                logger.info(f"No tool call identified")                
+                logger.info(f"No tool call identified")      
+                # No tools needed, just yield the direct response
+                yield {
+                    "type": "text",
+                    "intent": intent,
+                    "content": response.content
+                }          
         except Exception as e:
-            yield {"type": "status", "content": f"Could not retrieve response. {e}"}
-            return {
+            yield {
                 "type": "error", 
                 "content": f"Could not retrieve response. {e}",
                 "attempt": response.content
@@ -872,8 +879,39 @@ class HybridAgent(Agent):
         all_tools = {t.name: t for t in (self.tools + sql_tools + rag_tools)}
         self.tools = list(all_tools.values())  
 
-        self.router_llm = self.client.with_structured_output(Route)
-    
+        self.router_llm = self.client.with_structured_output(
+            Route, 
+            method="json_schema",  # or "function_calling"
+            tools=None, 
+            include_raw=False,
+            strict=True
+        )
+
+    def rule_based_routing(
+            self, 
+            user_prompt:str,
+            intent:QueryIntent
+    ):
+        log_msg = "Identifying decision route using rule-based routing..."
+        logger.info(log_msg)
+        yield {"type": "status", "content": log_msg}
+
+        if intent in [QueryIntent.AGGREGATION, QueryIntent.RANKING, QueryIntent.CHART]:
+            log_msg = f"Routing to SQLAgent for intent: {intent.value}"
+            logger.info(log_msg)
+            yield {"type": "status", "content": log_msg}
+            yield from self.sql_expert.process_query(user_prompt, intent)
+        
+        elif intent == QueryIntent.GENERAL:
+            log_msg = "Routing to RAGAgent for narrative lookup"
+            logger.info(log_msg)
+            yield {"type": "status", "content": log_msg}
+            yield from self.rag_expert.process_query(user_prompt, intent)
+        
+        # Fallback for ambiguous or unhandled cases
+        else:
+            yield {"type": "error", "content": "I'm sorry, I couldn't determine how to handle that request."}
+            yield from self._format_not_found(user_prompt, "Routing unclear")
 
     def process_query(
             self, 
@@ -889,94 +927,93 @@ class HybridAgent(Agent):
             Analytics (Aggregation, Ranking, Charts) -> SQL
             Fact Lookup (General) -> RAG
             """
-
-            if use_llm_routing:
-                logger.info("Identifying decision route using LLM routing...")
-                yield {"type": "status", "content": "Identifying decision route using LLM routing..."}
-                
-                routing_prompt = f"""
-                Determine the best system for this query: \n
-                - 'CHAT' for general conversation handling.\n
-                - 'SQL' for analytics (counts, rankings, aggregations, chart, any analytics-based query).\n
-                - 'RAG' for narrative fact lookup (who won, what happened).\n\n
-                Examples:
-                - "How many votes did party X get?" -> SQL\n
-                - "Who are the candidates in Abidjan?" -> SQL\n
-                - "Can you describe the turnout in Yamoussoukro?"\n
-                - "Hi there! How are you" -> CHAT\n
-                - "Tell me a joke" -> CHAT\n
-                - "Compare the total turnout by region" -> SQL\n
-                User query: "{user_prompt}"\n
-                Intent: {intent}\n
-                Respond ONLY and STRICLY with either 'CHAT', 'SQL' or 'RAG'.
-                """        
-
-                messages = [
-                    SystemMessage(content=routing_prompt), 
-                    HumanMessage(content=user_prompt)
-                ]    
-                response = self.router_llm.invoke(messages)
-
-                path = response.choice
-
-                log_msg = f"✅ Identified route: {path}"
-                logger.info(log_msg)
-                yield {"type": "status", "content": log_msg}
-
-                if path == "CHAT":
-                    yield {"type": "status", "content": "Thinking of a reply... ✍️"}
-                    
-                    # Define a casual, helpful personality
-                    personality_prompt = """
-                        You are a friendly, conversational election assistant. You are currently in 'Small Talk' mode.\n
-                        Keep it light, helpful, and concise. If the user greets you or asks how you are,
-                        respond naturally and ask how you can help them with election data.\n
-                        Use a casual, warm, and brief tone.\n
-                        DO NOT provide election data or facts unless specifically asked. 
-                    """
-                    
-                    # Grab context from session state so the LLM remembers previous casual turns
-                    history = [SystemMessage(content=personality_prompt)]
-                    
-                    # last 2-3 messages for simulated "memory"
-                    if len(messages) > 0:
-                        history.extend(messages[-3:])
-                    
-                    history.append(HumanMessage(content=user_prompt))
-                    
-                    chat_resp =  self.client.invoke(history)
-
-                    logger.info(f"CHAT response: {chat_resp.content}")
-                    
-                    yield {"type": "final", "content": chat_resp.content}
-                    return
-
-                elif path =="SQL":
-                    yield from self.sql_expert.process_query(user_prompt, intent)
-                else:
-                    yield from self.rag_expert.process_query(user_prompt, intent)
-            else:
-                log_msg = "Identifying decision route using rule-based routing..."
-                logger.info(log_msg)
-                yield {"type": "status", "content": log_msg}
-
-                if intent in [QueryIntent.AGGREGATION, QueryIntent.RANKING, QueryIntent.CHART]:
-                    log_msg = f"Routing to SQLAgent for intent: {intent.value}"
+            path = None
+            try:
+                if use_llm_routing:
+                    log_msg = "Identifying decision route using LLM routing..."
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
                     
-                    yield from self.sql_expert.process_query(user_prompt, intent)
-                
-                elif intent == QueryIntent.GENERAL:
-                    log_msg = "Routing to RAGAgent for narrative lookup"
+                    routing_prompt = f"""
+                    Determine the best system for this query: \n
+                    - 'CHAT' for general conversation handling.\n
+                    - 'SQL' for analytics (counts, rankings, aggregations, chart, any analytics-based query).\n
+                    - 'RAG' for narrative fact lookup (who won, what happened).\n\n
+                    Examples:
+                    - "How many votes did party X get?" -> SQL\n
+                    - "Who are the candidates in Abidjan?" -> SQL\n
+                    - "Can you describe the turnout in Yamoussoukro?"\n
+                    - "Hi there! How are you" -> CHAT\n
+                    - "Tell me a joke" -> CHAT\n
+                    - "Compare the total turnout by region" -> SQL\n
+                    User query: "{user_prompt}"\n
+                    Intent: {intent}\n
+                    Respond ONLY and STRICLY with either 'CHAT', 'SQL' or 'RAG'.
+                    """        
+
+                    messages = [
+                        SystemMessage(content=routing_prompt), 
+                        HumanMessage(content=user_prompt)
+                    ]    
+
+                    response = self.router_llm.invoke(messages)
+                    # Debug print to see exactly what the LLM returned
+                    logger.debug(f"Router raw response: {response}")
+                    
+                    # Handle both Pydantic objects and Dictionaries
+                    if hasattr(response, 'choice'):
+                        path = response.choice
+                    elif isinstance(response, dict):
+                        path = response.get('choice')
+                    
+                    if not path:
+                        raise ValueError("LLM returned an empty routing choice")
+
+                    log_msg = f"✅ Identified route: {path}"
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
-                    yield from self.rag_expert.process_query(user_prompt, intent)
-                
-                # Fallback for ambiguous or unhandled cases
-                else:
-                    yield from self._format_not_found(user_prompt, "Routing unclear")
 
+                    if path == "CHAT":
+                        yield {"type": "status", "content": "Thinking of a reply... ✍️"}
+                        
+                        # Define a casual, helpful personality
+                        personality_prompt = """
+                            You are a friendly, conversational election assistant. You are currently in 'Small Talk' mode.\n
+                            Keep it light, helpful, and concise. If the user greets you or asks how you are,
+                            respond naturally and ask how you can help them with election data.\n
+                            Use a casual, warm, and brief tone.\n
+                            DO NOT provide election data or facts unless specifically asked.\n
+                            Do NOT output 'CHAT'. Talk naturally.
+                        """
+                        
+                        # Grab context from session state so the LLM remembers previous casual turns
+                        history = [SystemMessage(content=personality_prompt)]
+                        
+                        # last 2-3 messages for simulated "memory"
+                        if len(messages) > 0:
+                            history.extend(messages[-3:])
+
+                        history.append(HumanMessage(content=user_prompt))
+                        
+                        chat_resp =  self.client.invoke(history)
+
+                        logger.info(f"CHAT response: {chat_resp.content}")
+                        
+                        yield {"type": "final", "content": chat_resp.content}
+                        return
+
+                    elif path =="SQL":
+                        yield from self.sql_expert.process_query(user_prompt, intent)
+                    else:
+                        yield from self.rag_expert.process_query(user_prompt, intent)
+                else:
+                    yield from self.rule_based_routing(user_prompt, intent)
+
+            except Exception as e: 
+                error_trace = traceback.format_exc()
+                logger.error(f"ROUTING ERROR: {str(e)}\n{error_trace}")
+                yield {"type": "error", "content": "⚠️ Routing failed. Falling back to rule-based logic..."}
+                yield from self.rule_based_routing(user_prompt, intent)
 
 if __name__ == "__main__":
     agent = HybridAgent(vllm_url=f"http://vllm:{CFG.VLLM_PORT}/v1")

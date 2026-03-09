@@ -192,7 +192,7 @@ User query
 I. Relational Schema
 
 Data base tables are categorized into:
-1. Dimentions: Region, Party, Candidate, Circonscription, 
+1. Dimentions: Region, Party, Candidate, Constituency, 
 2. Facts: Turnout (separate), Result (central)
 
 
@@ -213,7 +213,7 @@ To create and populate the database, you must run the [notebooks/pdf_data_extrac
 
 It will create db-related files under `data/processed`:
 - candidates.parquet
-- circonscriptions.parquet
+- constituencies.parquet
 - parties.parquet
 - regions.parquet
 - results.parquet
