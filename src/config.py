@@ -7,8 +7,6 @@ import os.path as osp
 from pathlib import Path
 from pprint import pprint
 
-from openai import OpenAI
-
 def get_project_root() -> Path:
     """Finds the root by looking for a marker file."""
     current_path = Path(__file__).resolve()
@@ -33,6 +31,7 @@ class CFG:
     GRAFANA_PORT            = os.getenv("GRAFANA_PORT", "3000")
 
     SERVER_IP               = str(os.getenv("SERVER_IP", "127.0.0.1"))
+    USERNAME                = os.getenv("USERNAME", "")
     DOCKER_CON_IP           = "http://host.docker.internal"
     VLLM_API_KEY            = os.getenv("VLLM_API_KEY", "token-is-ignored")
     HF_TOKEN                = os.getenv('HF_TOKEN', '')
@@ -48,27 +47,32 @@ class CFG:
                                "vw_party", 
                                "vw_turnout", 
                                "vw_results", 
-                               "vw_rag_descriptions"
+                               "vw_rag_descriptions",
+                               "embeddings"
+                               "candidate",
+                               "constituency"
                                ]
     # DB
-    SQL_MAX_LIMIT = TOP_K    = 20
+    SQL_MAX_LIMIT           = 50
+    TOP_K                   = 10
     
     # LLM (vLLM) Settings
-    IS_STREAM               = True
+    IS_STREAM               = False
     BASE_MODEL              = os.getenv("BASE_MODEL", "Qwen/Qwen3-1.7B")
     EMBEDDING_MODEL_NAME    = "google/embeddinggemma-300m" #"sentence-transformers/all-MiniLM-L6-v2" (384d)
+    TARGET_EMBEDDING_DIM    = 512
     MODEL_PROVIDER          = "openai"
     RELEVANCE_THRESHOLD     = 0.8 # For intent classification
-    GENERATION_TEMPERATURE  = 0.0 # setting to 0 for consistent generations
-    MAX_TOKENS              = 1024
+    GENERATION_TEMPERATURE  = 0.3 # setting to 0 for consistent generations
+    MAX_MODEL_LEN           = os.getenv("MAX_MODEL_LEN", 40960)
+    MAX_TOKENS              = 4096
     CHUNK_SIZE              = 256
     CHUNK_OVERLAP           = 100
+    REASONING_EFFORT        = "low" # Options: "low", "medium", "high"
+    MAX_ITERATIONS          = 18
 
-    client = OpenAI(
-        base_url=f"http://localhost:{VLLM_PORT}/v1",
-        api_key=VLLM_API_KEY,
-    )
 
+    
 os.chdir(CFG.PROJECT_ROOT)
 
 if __name__=="__main__":

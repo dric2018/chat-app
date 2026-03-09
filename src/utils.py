@@ -3,14 +3,9 @@ from config import CFG
 
 import requests
 
-import unidecode
+from unidecode import unidecode
 import re
 
-
-
-def validate_tables(sql):
-    if not any(view in sql for view in CFG.ALLOWED_TABLES):
-        raise ValueError("Unauthorized table access.")
     
 def parse_llm_response(raw_response:str):
     """
@@ -44,9 +39,14 @@ def check_stack_health():
 
     for name, url in services.items():
         try:
-            res = requests.get(url, timeout=2)
+            if name=='Nginx':
+                creds = (CFG.USERNAME, CFG.VLLM_API_KEY)
+                res = requests.get(url, auth=creds, timeout=2)
+            else:
+                res = requests.get(url, timeout=2)
+            
             status = "✅" if res.status_code == 200 else "⚠️"
-            logger.info(f"{status} {name}: \t{res.status_code} (url: {url})")
+            logger.info(f"{status} {name} (url: {url})")
 
             up = True
         except:
@@ -55,4 +55,8 @@ def check_stack_health():
     return up
 
 def normalize_text(text):
-    return unidecode(text.lower().strip())
+    text = text.lower().replace(' ', '').strip()
+    return unidecode(text)
+
+if __name__=="__main__":
+    check_stack_health()

@@ -1,18 +1,19 @@
 from __init__ import logger
 from config import CFG
 
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+
 import plotly.express as px
 
 import re
 
 import streamlit as st
-from db.sql_agent import SQLAgent, QueryIntent, HybridAgent
+from agent import QueryIntent, HybridAgent
 
 from utils import parse_llm_response
 
-CFG.client.base_url = f"http://vllm:{CFG.VLLM_PORT}/v1"
 
-agent = HybridAgent()
+agent = HybridAgent(vllm_url=f"http://vllm:{CFG.VLLM_PORT}/v1")
 
 def parse_thinking_stream(stream):
     thinking_expander = st.expander("Show Reasoning", expanded=True)
@@ -42,67 +43,88 @@ def parse_thinking_stream(stream):
             response_container.markdown(full_response)
             
     return full_thinking, full_response
-    
-def query_llm(
-        input_text:str, 
-        is_stream:bool=CFG.IS_STREAM
-    ):
 
-    st.session_state.messages.append(
-        {"role": "user", "content": input_text}
-    )
+def render_agent_response(response):
+    """
+    Renders the built-in <think> monologue, the investigation steps, 
+    and the final data/interpretation.
+    """
+    if not isinstance(response, dict):
+        response = response.model_dump()
+    # HANDLE BUILT-IN MODEL THINKING (<think> tags)
+    # The 'interpretation' or 'content' usually contains the raw LLM string
+    raw_text = response.get("interpretation") or response.get("content", "")
+    
+    if isinstance(raw_text, str) and "<think>" in raw_text:
+        match = re.search(r"<think>(.*?)</think>\s*(.*)", raw_text, re.DOTALL)
+        if match:
+            think_text = match.group(1).strip()
+            final_text = match.group(2).strip()
+            
+            # with st.expander("💭 Model Internal Monologue", expanded=False):
+            st.markdown(think_text)
+            
+            # Show the "cleaned" interpretation without the tags
+            st.markdown(final_text)
+        else:
+            st.markdown(raw_text)
+    else:
+        # If no think tags, just show the text
+        st.markdown(raw_text)
+
+    # HANDLE AGENT INVESTIGATION STEPS (Tool Reasoning)
+    if "steps" in response and response["steps"]:
+        with st.expander("🔍 Investigation Path (Tools Used)", expanded=False):
+            for i, step in enumerate(response["steps"]):
+                st.markdown(f"**Step {i+1}:** {step}")
+
+    # HANDLE DATA & VISUALS
+    if response["type"] == "data":
+        if "sql" in response:
+            with st.expander("💻 Generated SQL Query"):
+                st.code(response["sql"], language="sql")
+        
+        if response.get("intent") == QueryIntent.CHART:
+            df = response["data"]
+            fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Election Insights")
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with st.expander("📊 View Raw Data"):
+            st.dataframe(response["data"])
+
+def query_llm(input_text: str):
+    final_answer = None
+
+    # User Message
     with st.chat_message("user"):
         st.markdown(input_text)
+        st.session_state.messages.append(HumanMessage(content=input_text))
 
-    if is_stream:
-        with st.chat_message("assistant"):
-            # Stream the response for that "live" feel
-            stream = CFG.client.chat.completions.create(
-                model=CFG.BASE_MODEL,
-                messages=st.session_state.messages,
-                stream=True,
-                temperature=CFG.GENERATION_TEMPERATURE,
-                max_tokens=CFG.MAX_TOKENS
-            )
+    # Assistant Message
+    with st.chat_message("assistant"):
+        with st.status("🔍 Election Agent is thinking...", expanded=True) as status:
+            for update in agent.get_answer(input_text):
+                if update["type"] == "status":
+                    status.write(f"⚙️ {update['content']}")
+                
+                elif update["type"] in ["text", "data", "final"]:
+                    final_answer = update
+                    status.update(label="✅ Processing Complete", state="complete", expanded=False)
+                    # We BREAK or wait for the loop to finish here
+                
+                elif update["type"] == "error":
+                    status.update(label="❌ Error", state="error")
+                    st.error(update["content"])
+                    return
 
-            # response = st.write_stream(stream)
-            thinking, final_sql = parse_thinking_stream(stream)
-        
-        st.session_state.messages.append({"role": "assistant", "content": final_sql})
-    else:
-        with st.chat_message("assistant"):
-            with st.spinner("Analyzing election data..."):
-                response = agent.execute(input_text)
-        
-                if response["type"] == "data":
-                    st.write(response["interpretation"])
-                    
-                    if response["intent"] == QueryIntent.CHART:
-                        df = response["data"]
-                        # Dynamically pick columns: usually 1st is category, 2nd is value
-                        fig = px.bar(df, x=df.columns[0], y=df.columns[1], 
-                                    title=f"Generated chart")
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                        with st.expander("View Raw Data"):
-                            st.dataframe(df)
-                    else:
-                        raw_content = response.choices[0].message.content
-                        
-                        # Separate Thinking and SQL using your parser
-                        thinking, sql_query = parse_llm_response(raw_content)
-
-                        # Show thinking in a collapsible box
-                        if thinking:
-                            with st.expander("Show Reasoning"):
-                                st.write(thinking)
-
-                        # Format the SQL
-                        st.code(sql_query, language="sql")
-
-                st.session_state.messages.append({"role": "assistant", "content": raw_content})
-
-
+        if final_answer:
+            # Now this will appear in the main chat message area
+            render_agent_response(final_answer)
+            
+            # Save the final text content to history
+            content_to_save = final_answer.get("content") or final_answer.get("interpretation", "")
+            st.session_state.messages.append(AIMessage(content=content_to_save))
+            print("ST messages: ", st.session_state.messages)
 
 st.title("📄 Chat App")
 
@@ -111,27 +133,30 @@ if "messages" not in st.session_state:
 
 # Display chat history
 for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        content = message["content"]
-        
-        # Check if this is an assistant message with thinking tags
-        if message["role"] == "assistant" and "<think>" in content:
-            # Parse the stored string
-            match = re.search(r"<think>(.*?)</think>\s*(.*)", content, re.DOTALL)
-            if match:
-                think_text = match.group(1).strip()
-                sql_text = match.group(2).strip()
-                
-                # Re-draw the UI elements
-                with st.expander("Model Reasoning", expanded=False):
-                    st.markdown(think_text)
-                st.code(sql_text, language="sql")
-            else:
-                st.markdown(content)
+    role = "user" if message.type == "human" else "assistant"
+    with st.chat_message(role):
+        st.markdown(role)
+        if role == "assistant":
+            render_agent_response(message)
         else:
-            # Standard user message or fallback
-            st.markdown(content)
+            st.markdown(message.content)
 
-if prompt := st.chat_input("Ask anything about the 2025 legislative elections..."):
+if prompt := st.chat_input("Ask anything..."):
     query_llm(input_text=prompt)
 
+# if __name__=="__main__":
+#     sys_prompt = """Answer the user in a casual manner"""
+#     user_prompt = input(">> ")
+    
+#     messages = [
+#         SystemMessage(content=sys_prompt), 
+#         HumanMessage(content=user_prompt)
+#     ]
+
+#     while user_prompt !="exit":
+#         response = agent.llm_with_tools.invoke(messages)
+#         print(f"<< {response.content}\n")
+
+#         messages.append(AIMessage(content=response.content))
+#         user_prompt = input(">> ")
+#         messages.append(HumanMessage(content=user_prompt))

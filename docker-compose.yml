@@ -19,12 +19,18 @@ services:
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
       - models:/root/.cache/huggingface
+      #-e VLLM_WORKER_MULTIPROC_METHOD=spawn
     command: >
       --model ${BASE_MODEL}
+      -e VLLM_CPU_KVCACHE_SPACE=8
       --host 0.0.0.0
       --dtype float16
-      --max-model-len 2048
       --trust-remote-code
+      --enable-auto-tool-choice
+      --reasoning-parser qwen3
+      --tool-call-parser qwen3_xml
+      --max-model-len ${MAX_MODEL_LEN}
+      --no-enable-expert-parallel 
     environment:
       - HF_TOKEN=${HF_TOKEN}
     networks:

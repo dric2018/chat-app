@@ -1,8 +1,9 @@
+from __init__ import logger, get_args
 from config import CFG
 import platform
 import subprocess
 import os
-from utils import check_stack_health, init_logging, get_args
+from utils import check_stack_health
 from src import logger
 import sys
 
@@ -102,7 +103,6 @@ def add_to_env_file(hw:dict):
 
 def run_stack():
 
-    init_logging()
     args = get_args()
 
     logger.info("Calling run_stack()...")

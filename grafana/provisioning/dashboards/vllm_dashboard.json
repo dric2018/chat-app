@@ -57,6 +57,24 @@
       "targets": [{ "expr": "sum(vllm:generation_tokens_total) / (sum(vllm:request_success_total) or vector(1))" }]
     },
     {
+      "title": "Blocked Security Violations",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 20 },
+      "targets": [{ "expr": "sum(rag_sql_security_violations_total) or vector(0)" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
       "title": "User Perceived Latency (P95)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
@@ -91,24 +109,6 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "targets": [{ "expr": "vllm:gpu_cache_usage_perc * 100" }],
       "fieldConfig": { "defaults": { "unit": "percent", "max": 100 } }
-    },
-    {
-      "title": "Blocked Security Violations",
-      "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 20 },
-      "targets": [{ "expr": "sum(rag_sql_security_violations_total) or vector(0)" }],
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
-            ]
-          }
-        }
-      }
     }
   ],
   "schemaVersion": 38

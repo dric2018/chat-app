@@ -26,6 +26,7 @@ dependencies = [
     "unidecode",
     "pytest",
     "requests",
+    "tabulate",
     "jupyterlab",
     "ipywidgets",
     "sentence-transformers"
