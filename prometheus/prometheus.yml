@@ -12,21 +12,10 @@ scrape_configs:
     static_configs:
     - targets: ['prometheus:9090']
 
-  # - job_name: 'ui-metrics'
-  #   static_configs:
-  #     - targets: ['streamlit-app:8501']
-  #       labels:
-  #         source: 'streamlit'
-  #     - targets: ['open-webui:3000']
-  #       labels:
-  #         source: 'open_webui'
-  #   relabel_configs:
-  #     - target_label: 'app_type'
-  #       replacement: 'sql_agent'
- 
-  # Node Exporter (Optional: Monitor GPU/CPU health)
-  - job_name: 'system'
+  - job_name: 'election_app'
+    honor_timestamps: false  # Force Prometheus to use its own current clock
+    metrics_path: '/metrics'
     static_configs:
-      - targets: ['node-exporter:9100']
+      - targets: ['streamlit-app:8001']
 
       

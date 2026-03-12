@@ -6,6 +6,8 @@ import requests
 from unidecode import unidecode
 import re
 
+from prometheus_client import Counter, REGISTRY
+
     
 def parse_llm_response(raw_response:str):
     """
@@ -57,6 +59,18 @@ def check_stack_health():
 def normalize_text(text):
     text = text.lower().replace(' ', '').strip()
     return unidecode(text)
+
+
+def get_security_counter():
+    metric_name = 'rag_sql_security_violations_total'
+    # Check if this metric is already in the global registry
+    if metric_name not in REGISTRY._names_to_collectors:
+        return Counter(
+            metric_name, 
+            'Total number of blocked SQL security violations'
+        )
+    # If it exists, return the existing collector
+    return REGISTRY._names_to_collectors[metric_name]
 
 if __name__=="__main__":
     check_stack_health()

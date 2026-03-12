@@ -360,14 +360,25 @@ class ElectionDB:
             logger.info(f"Embedding {len(data)} chunks in batches of {batch_size}...")
             for i in range(0, len(data), batch_size):
                 batch = data[i : i + batch_size]
-                texts = [r[0] for r in batch]
+                texts = [r[0] for r in batch if r[0]] # Filter out None/empty strings
                 
-                embeddings = self.embedding_model.encode(texts).tolist()
+                if not texts:
+                    continue
+
+                # Get the raw output first to check for None
+                raw_embeddings = self.embedding_model.encode(texts)
+                
+                if raw_embeddings is None:
+                    logger.error(f"Embedding model returned None for batch {i}")
+                    continue
+                    
+                embeddings = raw_embeddings.tolist()
 
                 insert_data = []
                 for j, row in enumerate(batch):
-                    # row: (text, type, id) + embedding
-                    insert_data.append((row[1], row[2], row[0], embeddings[j]))
+                    # Safety check: Ensure the embeddings list is indexed correctly
+                    embedding_val = embeddings[j] if j < len(embeddings) else None
+                    insert_data.append((row[1], row[2], row[0], embedding_val))
 
                 conn.executemany("""
                     INSERT INTO embeddings (ENTITY_TYPE, ENTITY_ID, TEXT_CHUNK, EMBEDDING)

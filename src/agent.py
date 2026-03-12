@@ -33,6 +33,9 @@ import time
 from typing import Tuple, Dict, List, Any, Literal
 import traceback
 
+
+from utils import get_security_counter
+
 db_client = ElectionDB()
 
 class QueryIntent(Enum):
@@ -73,6 +76,10 @@ class DisambiguationRequiredError(BaseAgentException):
     """Raised when a query is too vague and needs user input (e.g., 'Tiapoum')."""
     pass
 
+
+# Define the metric that matches your Grafana 'expr'
+VIOLATIONS_COUNTER = get_security_counter()
+
 class Agent(abc.ABC):
     def __init__(
             self, 
@@ -92,7 +99,7 @@ class Agent(abc.ABC):
                                 "chat_template_kwargs": {"enable_thinking": False},
                             },
                             streaming=CFG.IS_STREAM,
-                            timeout=30,
+                            timeout=CFG.TIMEOUT,
                             max_retries=3
                         )
         # self.client.openai_api_base = vllm_url
@@ -269,13 +276,12 @@ class Agent(abc.ABC):
         }
 
         interp_prompt = f"""
-        User Query: "{user_prompt}"
-        Intent: {intent.value}
-        Data Results:
-        {data_table}
-
-        Task: {intent_context.get(intent, "Summarize the data.")}
-        Provide a short natural language summary of these results. 
+        User Query: "{user_prompt}"\n
+        Intent: {intent.value}\n
+        Data Results:\n
+        {data_table}\n
+        Task: {intent_context.get(intent, "Summarize the data.")}\n
+        Provide a short natural language summary of these results. \n
         If there are many rows, highlight the most significant ones.\n
         Expected Output: Only output the interpretation.
         """
@@ -285,16 +291,18 @@ class Agent(abc.ABC):
             HumanMessage(content=interp_prompt)
         ]
 
-        logger.info("Prompting LLM")
-        response = self.llm_with_tools.invoke(messages)
+        try:
+            logger.info("Prompting LLM")
+            response = self.llm_with_tools.invoke(messages)
 
-        logger.info("Identifying tool calls")
-        tool_requests = response.tool_calls
-        
-        if not tool_requests and "<tool_call>" in response.content:
-            pass # we ignore tools here
-        
-        return response.content.strip()
+            tool_requests = response.tool_calls
+            
+            if not tool_requests and "<tool_call>" in response.content:
+                pass # we ignore tools here
+            
+            return response.content.strip()
+        except Exception as e:
+            logger.error(f"Could not interpret results. {e}", exc_info=True)
 
     def _format_not_found(self, prompt:str, logic_path):
         """Standardized failure response per your requirements."""
@@ -411,6 +419,8 @@ class SQLAgent(Agent):
         try:
             parsed = sqlparse.parse(sql)
             if len(parsed) > 1:
+                metrics["violations"] += 1
+                VIOLATIONS_COUNTER.inc()                
                 out_message = "Security Violation: Multiple queries detected."
                 return is_query_valid, out_message
             
@@ -419,12 +429,16 @@ class SQLAgent(Agent):
             # Checking for the Command Type
             # We ensure the very first Data Manipulation Language (DML) token is 'SELECT'
             if clean_sql.get_type() != "SELECT":
+                metrics["violations"] += 1
+                VIOLATIONS_COUNTER.inc()                
                 out_message = f"Security Violation: Forbidden command type '{clean_sql.get_type()}'."
                 return is_query_valid, out_message
             
             # Ensuring only allowed tables are used
-            if not any(t in clean_sql.value for t in CFG.ALLOWED_TABLES):
-                out_message = f"Security Violation: Unauthorized table access detected."
+            if not any(t in clean_sql.value.lower() for t in CFG.ALLOWED_TABLES):
+                metrics["violations"] += 1
+                VIOLATIONS_COUNTER.inc()
+                out_message = f"Security Violation: Unauthorized table access detected.\nSQL: {clean_sql.value}"
                 return is_query_valid, out_message            
 
             # Deep Token Inspection (No hidden JOINs to sensitive tables)
@@ -432,6 +446,7 @@ class SQLAgent(Agent):
             for token in clean_sql.flatten():
                 if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in forbidden:
                     metrics["violations"] += 1
+                    VIOLATIONS_COUNTER.inc()
                     out_message = f"Security Violation: Forbidden keyword '{token.value}' detected."
                     return is_query_valid, out_message
             
@@ -457,10 +472,11 @@ class SQLAgent(Agent):
 
         try: 
             with duckdb.connect(str(CFG.DB_PATH), read_only=True) as conn:
-                results = conn.execute(sql_query).df()
+                results = conn.execute(sql_query).df().drop_duplicates()
+
         except Exception as e:
             out_msg = f"Could not execute query. {e}"
-            logger.error(out_msg)
+            logger.error(out_msg, exc_info=True)
 
         return results, out_msg
 
@@ -542,7 +558,7 @@ class SQLAgent(Agent):
             yield {"type": "error", "content": "Max iterations reached."}
 
         except Exception as e:
-            logger.critical(f"Query generation error: {e}")
+            logger.critical(f"Query generation error: {e}", exc_info=True)
             yield {"type": "error", "content": str(e)}
 
     def generate_sql(
@@ -553,8 +569,9 @@ class SQLAgent(Agent):
         ):
         """Restricted SQL Generation"""
 
-        logger.info(f"Attempting restricted SQL generation...(Max iterations={CFG.MAX_ITERATIONS})")
-        yield {"type": "status", "content": f"Attempting restricted SQL generation...(Max iterations={CFG.MAX_ITERATIONS})"}
+        log_msg = f"Attempting SQL generation...(Max iterations={CFG.MAX_ITERATIONS})"
+        logger.info(log_msg)
+        yield {"type": "status", "content": log_msg}
 
         intent_instructions = {
             QueryIntent.AGGREGATION: "Use GROUP BY and SUM/AVG. Ensure results are numeric and in desc order.",
@@ -583,16 +600,16 @@ class SQLAgent(Agent):
                 - Only use the allowed tables as specified in this list: {CFG.ALLOWED_TABLES}\n
                 - You can use describe_table to see exact column names in previously listed tables.\n
                 - You can use sample_data to understand how values are formatted and connected between the identified tables.\n
-                - You can use execute_read_query once the query is available to ensure it works\n
-            - Once you have gathered sufficient evidence, stop exploring the database and generate the final SQL SELECT statement.\n
-            - Use JOIN and ORDER BY where necessary.\n
-            - HARD CONSTRAINT: Never use {self.forbidden} statements!\n
-            - If the question is too vague, return: SELECT 'NO_DATA'
-            - Always include a LIMIT {CFG.SQL_MAX_LIMIT}. 
+            - HARD CONSTRAINT: Use execute_read_query to ensure the SQL query actually works before returning it.\n
+            - Once you have gathered sufficient evidence, stop exploring the database and generate the final SQL SELECT query. \n
+            - Make sure to add any useful filed/column that may ease later interpretation of results\n
             - Formulate your query approach based on your professional judgment of the database structure.\n
             - Balance comprehensive exploration with efficient tool usage to minimize unnecessary operations.\n
             - For every tool call, include a detailed reasoning parameter explaining your strategic thinking.\n
             - Be sure to specify every required parameter for each tool call.\n
+            - Use JOIN and ORDER BY where necessary.\n
+            - HARD CONSTRAINT: Never use {self.forbidden} statements!\n
+            - Always include a LIMIT {CFG.SQL_MAX_LIMIT}. \n
         Expected output: Only the final SQL query.\n
             - Your responses should be formatted as Markdown. 
         """
@@ -609,8 +626,9 @@ class SQLAgent(Agent):
                 for step in range(CFG.MAX_ITERATIONS):
                     step_counter = f"{step+1}/{CFG.MAX_ITERATIONS}"
                     
-                    logger.info(f"\n\nStarting iteration {step_counter}")
-                    yield {"type": "status", "content": f"\nStarting iteration {step_counter}"}
+                    log_msg = f"\nStarting iteration {step_counter}"
+                    logger.info(log_msg)
+                    yield {"type": "status", "content": log_msg}
                     response = self.llm_with_tools.invoke(messages)
                     
                     tool_requests = response.tool_calls
@@ -630,11 +648,12 @@ class SQLAgent(Agent):
                             call_id = tool_req.get("id", "manual")
 
                             selected_tool = {t.name: t for t in self.tools}[name]
-                            logger.info(f"Executing tool: {name} with args {args}")
-                            yield {"type": "status", "content": f"Executing tool: {name} with args {args}"}
+                            log_msg = f"Executing tool: {name} with args {args}"
+                            logger.info(log_msg)
+                            yield {"type": "status", "content": log_msg}
                             
                             observation = selected_tool.invoke(args)
-                            logger.info(f"Tool output: {str(observation)}")
+                            # logger.info(f"Tool output: {str(observation)}")
 
                             messages.append(ToolMessage(content=str(observation)+f"\nIteration: {step_counter}", tool_call_id=call_id))
                         continue
@@ -646,8 +665,7 @@ class SQLAgent(Agent):
                         yield {
                             "type": "final_sql", 
                             "content": response.content,
-                            "sql": response.content,
-                            "query": self._sanitize_sql(response.content)
+                            "sanitized_query": self._sanitize_sql(response.content)
                             }
                         
                         return
@@ -657,7 +675,7 @@ class SQLAgent(Agent):
                 return
 
             except Exception as e:
-                logger.critical(f"Query generation error: {e}")
+                logger.critical(f"Query generation error: {e}", exc_info=True)
                 return {"type": "error", "content": str(e)}
             
     def _sanitize_sql(self, text: str) -> str:
@@ -713,32 +731,52 @@ class SQLAgent(Agent):
             intent: QueryIntent
         ):
 
-        logger.info("Generating SQL query")
+        log_msg = "Generating SQL query"
+        logger.info(log_msg)
+        yield {"type": "status", "content": log_msg}
+
+
         try:
-            for generated_sql in self.generate_sql(user_prompt, intent):
+            for response in self.generate_sql(user_prompt, intent):
                 
-                # Structural check before hitting the DB
-                if not self.validate_sql(generated_sql):
-                    logger.error(f"SQL Violation Attempted: {generated_sql}")
-                    yield {"type": "text", "content": "Security violation."}   
-                    return 
+                if response["type"] == "final_sql":
+                    # Structural check before hitting the DB
+                    sql = response["sanitized_query"]
+
+                    is_safe, out_message = self.validate_sql.invoke({
+                        "reasoning": "validating SQL query",
+                        "sql": sql,
+                        "metrics": self.metrics,
+                        "forbidden": self.forbidden
+                    })
+                    
+                    if not is_safe:
+                        logger.error(f"SQL Violation Attempted: {out_message}")
+                        # Increment the Prometheus counter
+                        yield {
+                            "type": "text", 
+                            "content": f"Security violation. {out_message}"
+                        }   
+                        return 
+                            
+                    results, _ = self.execute_read_query.invoke({
+                        "sql_query": sql,
+                        "reasoning": "Retrieving data from database"
+                    })
                         
-                with duckdb.connect(CFG.DB_PATH, read_only=True) as conn:
-                    df = conn.execute(generated_sql).df().drop_duplicates()
-                    
-                if df.empty:
-                    yield {"type": "text", "content": "No data found."}
+                    if results.empty:
+                        yield {"type": "text", "content": "No data found."}
+                        return 
+                        
+                    yield {
+                        "type": "data",
+                        "intent": intent,
+                        "data": results,
+                        "interpretation": self._interpret_results(user_prompt, results, intent)
+                    }
                     return 
-                    
-                yield {
-                    "type": "data",
-                    "intent": intent,
-                    "data": df,
-                    "interpretation": self._interpret_results(user_prompt, df.values.tolist(), df.columns.tolist())
-                }
-                return 
         except Exception as e:
-            logger.error(f"Query generation error: {e}")
+            logger.error(f"Query generation error: {e}", exc_info=True)
             yield {"type": "error", "content": str(e)}
             return
 
@@ -938,7 +976,7 @@ class HybridAgent(Agent):
                     Determine the best system for this query: \n
                     - 'CHAT' for general conversation handling.\n
                     - 'SQL' for analytics (counts, rankings, aggregations, chart, any analytics-based query).\n
-                    - 'RAG' for narrative fact lookup (who won, what happened).\n\n
+                    - 'RAG' for narrative fact lookup (what happened). Use this route for purely descriptive/biographical questions. Otherwise, revert to SQL queries.\n\n
                     Examples:
                     - "How many votes did party X get?" -> SQL\n
                     - "Who are the candidates in Abidjan?" -> SQL\n
@@ -1003,11 +1041,14 @@ class HybridAgent(Agent):
                         return
 
                     elif path =="SQL":
-                        yield from self.sql_expert.process_query(user_prompt, intent)
+                        for step in self.sql_expert.process_query(user_prompt, intent):
+                            yield step
                     else:
-                        yield from self.rag_expert.process_query(user_prompt, intent)
+                        for step in self.rag_expert.process_query(user_prompt, intent):
+                            yield step
                 else:
-                    yield from self.rule_based_routing(user_prompt, intent)
+                    for step in self.rule_based_routing(user_prompt, intent):
+                        yield step
 
             except Exception as e: 
                 error_trace = traceback.format_exc()

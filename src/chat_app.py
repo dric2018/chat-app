@@ -12,6 +12,13 @@ from agent import QueryIntent, HybridAgent
 
 from utils import parse_llm_response
 
+from prometheus_client import start_http_server
+
+
+try:
+    start_http_server(port=8001, addr='http://streamlit-app')    
+except OSError:
+    pass 
 
 agent = HybridAgent(vllm_url=f"http://vllm:{CFG.VLLM_PORT}/v1")
 
@@ -107,10 +114,9 @@ def query_llm(input_text: str):
                 if update["type"] == "status":
                     status.write(f"⚙️ {update['content']}")
                 
-                elif update["type"] in ["text", "data", "final"]:
+                elif update["type"] in ["text", "data", "final_sql", "final"]:
                     final_answer = update
                     status.update(label="✅ Processing Complete", state="complete", expanded=False)
-                    # We BREAK or wait for the loop to finish here
                 
                 elif update["type"] == "error":
                     status.update(label="❌ Error", state="error")
@@ -118,10 +124,8 @@ def query_llm(input_text: str):
                     return
 
         if final_answer:
-            # Now this will appear in the main chat message area
             render_agent_response(final_answer)
             
-            # Save the final text content to history
             content_to_save = final_answer.get("content") or final_answer.get("interpretation", "")
             st.session_state.messages.append(AIMessage(content=content_to_save))
             print("ST messages: ", st.session_state.messages)

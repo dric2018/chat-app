@@ -14,6 +14,11 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout),
     ]
 )
+
+to_skip = ["httpx", "httpcore", "openai"]
+for lib in to_skip:
+    logging.getLogger(lib).setLevel(logging.WARNING)
+
 logger = logging.getLogger("LocalLLMStack")
 
 

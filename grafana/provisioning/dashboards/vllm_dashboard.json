@@ -60,8 +60,8 @@
       "title": "Blocked Security Violations",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 20 },
-      "targets": [{ "expr": "sum(rag_sql_security_violations_total) or vector(0)" }],
+      "gridPos": { "h": 4, "w": 4, "x": 18, "y": 0 },
+      "targets": [{ "expr": "sum(rag_sql_security_violations_total)" }],
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -103,13 +103,72 @@
       ]
     },
     {
-      "title": "KV Cache Capacity Usage",
+      "title": "vLLM CPU Usage",
+      "type": "gauge",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 20 },
+      "targets": [{ 
+        "expr": "rate(process_cpu_seconds_total[1m]) * 100",
+        "legendFormat": "vLLM Process CPU %" 
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0, "max": 100, "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 85 }] } }
+      }
+    },
+    {
+      "title": "Process Memory (RSS)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 20 },
+      "targets": [{ 
+        "expr": "process_resident_memory_bytes / 1024 / 1024 / 1024",
+        "legendFormat": "vLLM RAM (GB)" 
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "decbytes", "custom": { "drawStyle": "area", "fillOpacity": 20 } }
+      }
+    },
+    {
+      "title": "KV Cache Usage (Hybrid)",
       "type": "gauge",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
-      "targets": [{ "expr": "vllm:gpu_cache_usage_perc * 100" }],
-      "fieldConfig": { "defaults": { "unit": "percent", "max": 100 } }
+      "targets": [{ 
+        "expr": "(vllm:gpu_cache_usage_perc OR vllm:kv_cache_usage_perc OR on() vector(0)) * 100",
+        "legendFormat": "KV Cache %" 
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "max": 100 }
+      }
+    },
+    {
+    "title": "RAG Cache Hit Rate (Prefix Caching)",
+    "type": "gauge",
+    "datasource": { "type": "prometheus", "uid": "${datasource}" },
+    "gridPos": { "h": 8, "w": 9, "x": 15, "y": 20 },
+    "targets": [
+      {
+        "expr": "(rate(vllm:prefix_cache_hits_total[5m]) / rate(vllm:prefix_cache_queries_total[5m])) * 100",
+        "legendFormat": "Hit Rate %"
+      }
+    ],
+    "fieldConfig": {
+      "defaults": {
+        "unit": "percent",
+        "min": 0,
+        "max": 100,
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "red", "value": null },
+            { "color": "orange", "value": 40 },
+            { "color": "green", "value": 70 }
+          ]
+        }
+      }
     }
+  }
+
   ],
   "schemaVersion": 38
 }

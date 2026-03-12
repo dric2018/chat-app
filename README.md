@@ -241,8 +241,8 @@ CPU:
     - MAX_TOKENS = 1024
 - Qwen/Qwen3-1.7B ( ✅ )
     - MAX_TOKENS = 1024
-
-- Qwen/Qwen3-4B-Instruct-2507 ( ❌ )
+- Qwen/Qwen3-4B-Instruct-2507 ( ✅ )
+    - MAX_TOKENS = 4096
 - facebook/opt-125m ( ❌ )
 
 ### Overall Progress
@@ -338,6 +338,10 @@ Evaluation Suite: 📝 Pending.
     - schema decisions ✅
     - routing/guardrails (if implemented) ✅; See [src/db/sql_agent.py](src/db/sql_agent.py)
     - known limitations + next steps TBA
+
+To be added:
+- Persistent messages history
+- Refined Monitoring dashborad
 
 # Credits and Acknowledgement
 - The project was implemented with partial assistance from LLMs (Qwen3-8b, Gemma-3-12b)
