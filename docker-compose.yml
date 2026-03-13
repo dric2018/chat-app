@@ -40,7 +40,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 30s
-      retries: 20     
+      retries: 50     
       start_period: 60s
     restart: unless-stopped
 
@@ -101,7 +101,7 @@ services:
     expose:
       - "8501" # making sure service is only accessible through Nginx
     ports:
-      - "8001:8001"      
+      - 8001:8001     
     extra_hosts:
       - "host.docker.internal:host-gateway"  
     volumes:

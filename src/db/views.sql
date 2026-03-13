@@ -29,8 +29,6 @@ JOIN region r ON circ.REGION_ID = r.REGION_ID
 -- Explicitly group by the high-level entities only
 GROUP BY p.PARTY_NAME, r.REGION_NAME;
 
-
-
 CREATE OR REPLACE VIEW vw_turnout AS
 SELECT 
     t.TURNOUT_ID,
@@ -90,7 +88,7 @@ UNION ALL
 
 --- Individual Candidate Results
 SELECT 
-    'Candidate ' || CANDIDATE_NAME || ' representing ' || PARTY_NAME || 
+    'Candidate (or candidate group) ' || CANDIDATE_NAME || ' representing ' || PARTY_NAME || 
     ' ran in ' || CONSTITUENCY_TITLE || '. They received ' || SCORES || 
     ' votes, finishing in rank ' || DENSE_RANK() OVER (PARTITION BY CONSTITUENCY_NUM ORDER BY SCORES DESC) || 
     '. Outcome: ' || (CASE WHEN is_winner THEN 'ELECTED' ELSE 'NOT ELECTED' END) || '.' AS TEXT_CHUNK,

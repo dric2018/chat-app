@@ -379,11 +379,13 @@ class ElectionDB:
                     # Safety check: Ensure the embeddings list is indexed correctly
                     embedding_val = embeddings[j] if j < len(embeddings) else None
                     insert_data.append((row[1], row[2], row[0], embedding_val))
-
-                conn.executemany("""
-                    INSERT INTO embeddings (ENTITY_TYPE, ENTITY_ID, TEXT_CHUNK, EMBEDDING)
-                    VALUES (?, ?, ?, ?)
-                """, insert_data)
+                try:
+                    conn.executemany("""
+                        INSERT INTO embeddings (ENTITY_TYPE, ENTITY_ID, TEXT_CHUNK, EMBEDDING)
+                        VALUES (?, ?, ?, ?)
+                    """, insert_data)
+                except Exception as e:
+                    logger.error(f"{e}", exc_info=True)
 
             logger.info(f"✅ RAG table synced with {len(data)} vectors.")
 

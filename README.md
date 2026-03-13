@@ -236,7 +236,7 @@ DB-related operations are grouped into the `ElectionDB` class. Those are:
 
 
 #### Base LLMs
-CPU:
+CPU (thinking disabled):
 - Qwen/Qwen3-0.6B ( ✅ )
     - MAX_TOKENS = 1024
 - Qwen/Qwen3-1.7B ( ✅ )
@@ -255,7 +255,7 @@ Level 1: Analytics-First Agent (95% Complete)
 
 > Restricted SQL generation with security guardrails (no forbidded statement is executed) ✅.
 
-> Chart Generation: 🏗️ In Progress. We have the `CHART` intent and dataframes ready; you just need to call st...pending integration with Streamlit frontend.
+> Chart Generation: We have the `CHART` intent and dataframes ready; the streamlit UI can display the charts via plotly, though it can be improved ✅.
 
 #### Typical Workflow: The "Ask-Route-Execute" Loop
 
@@ -283,18 +283,16 @@ Level 1: Analytics-First Agent (95% Complete)
 - Final Response: The HybridAgent returns a structured dictionary containing the text, the raw data (for a frontend table), and the identified intent.
 
 
-Level 2: Hybrid Router (75% Complete)
+Level 2: Hybrid Router (90% Complete)
 RAG Indexing: ✅
 > Created the `embeddings` table and its corresponding view for results and turnout.
 
 Hybrid Routing: ✅. 
-> Logic for SQL and RAG merged into a `HybridAgent` that uses the appropriate pipeline. 
-
-> Implemented `HybridAgent.route()` to pick the path based on user intent.
+> Logic for SQL and RAG merged into a `HybridAgent` that uses the appropriate pipeline based on the user request. A CHAT route was added in case the user asks general questions that may not be directly related to the elections. 
 
 > DuckDB has native support for string similarity functions like `levenshtein`, `hamming`, and `jaro_winkler_similarity`. Thus we mainy rely on this for that matter.
 
-Citations: 📝 Pending. 
+Citations: 🏗️ Not implemented. However, we extracted the page_id (source page number) during the ingestion process. 
 
 > `ENTITY_ID` present in the RAG table; 
 > Need to map it back to `page_id` during the final response, after we ensure `page_id` and `row_id` are extracted and saved during ingestion.
@@ -304,23 +302,41 @@ Disambiguation: 🏗️ In Progress.
 
 > Current ingestion handles some normalization, but the Agent doesn't yet ask the user for clarification.
 
-Session Memory: 📝 Pending (Not implemented). 
+Session Memory: 🏗️ Not implemented. 
 
-> This can be handled using st.session_state in the Streamlit frontend. ut we did not spend time adding it since more advanced UI like `Open WebUI` offer this for free.
+> This can be handled using st.session_state in the Streamlit frontend. We did not spend time adding persistent memory since more advanced UI like `Open WebUI` offer this for free.
 
-Level 4: Observability & Evaluation (40% Complete)
+Level 4: Observability & Evaluation (60% Complete)
 
 Observability: ✅ Started. 
 
-> Centralized logger and a metrics dictionary in the SQLAgent.
+> Centralized logger and a metrics dictionary in the `Agent` class.
 
 > Grafana dashboard to visualize LLM metrics
 
-Traceability: 🏗️ In Progress. 
+Traceability: 🏗️ Not implemented. 
 
-> We discussed integrating with Grafana/Loki, which would fully satisfy the "trace each request end-to-end" requirement (p. 6).
+> Can think about integrating with Grafana/Loki, which would fully satisfy the "trace each request end-to-end" requirement.
 
-Evaluation Suite: 📝 Pending. 
+> Current Grafana dashboard can be upgraded with additional metrics
+- Intent classification \& routing (currently logged) 🏗️
+- Retrieval results 🏗️
+- SQL generated and validation outcome
+tool calls (charts) and timings 🏗️
+- Final response latency ✅
+- Token usage/generated ✅
+- KV cache % (GPU & CPU) ✅
+- Total Requests Completed ✅
+- Total Tokens (Gen / Prompt) ✅
+- Avg Tokens per Request ✅
+- User Perceived Latency (P95) ✅
+- System Throughput (Tokens/s) ✅
+- Workload Distribution (Running vs Waiting) ✅
+- vLLM CPU Usage ✅
+- Cache Hit Rate (Prefix Caching) ✅
+- Blocked Security Violations 🏗️
+
+Evaluation Suite: 🏗️ Not implemented. 
 
 > Still need an offline script to measure "Fact lookup accuracy" and "Citation faithfulness".
 
@@ -344,4 +360,5 @@ To be added:
 - Refined Monitoring dashborad
 
 # Credits and Acknowledgement
-- The project was implemented with partial assistance from LLMs (Qwen3-8b, Gemma-3-12b)
+- The project was implemented with partial assistance from LLMs (Qwen3-8b, Gemini-3-12b, Mistral-22b).
+- No typical coding agent was used in this project.

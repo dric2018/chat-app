@@ -5,6 +5,7 @@ import requests
 
 from unidecode import unidecode
 import re
+import string
 
 from prometheus_client import Counter, REGISTRY
 
@@ -56,8 +57,21 @@ def check_stack_health():
 
     return up
 
-def normalize_text(text):
-    text = text.lower().replace(' ', '').strip()
+def normalize_text(
+        text, 
+        remove_punctuation:bool=False, 
+        lowercase:bool=True
+    ):
+    
+    if lowercase:
+        text = text.lower()
+
+    if remove_punctuation:
+        translator = str.maketrans(string.punctuation, ' ' * len(string.punctuation))
+        text = text.translate(translator)
+    
+    text = text.strip()
+    
     return unidecode(text)
 
 

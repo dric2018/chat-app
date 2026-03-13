@@ -20,6 +20,7 @@ import inspect
 
 from langchain_core.tools import tool, BaseTool, StructuredTool
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
 import pandas as pd
@@ -32,7 +33,6 @@ import sqlparse
 import time
 from typing import Tuple, Dict, List, Any, Literal
 import traceback
-
 
 from utils import get_security_counter
 
@@ -149,7 +149,7 @@ class Agent(abc.ABC):
         super().__setattr__(name, value)
     
     @abc.abstractmethod
-    def process_query(self, user_prompt: str, intent: QueryIntent):
+    def process_query(self, user_prompt: str, intent: QueryIntent, chat_history: list= None):
         """Subclasses define HOW they get the data (SQL, RAG, etc.)"""
         pass
 
@@ -170,7 +170,7 @@ class Agent(abc.ABC):
                 continue
         return found_tools
 
-    def get_answer(self, user_prompt: str):
+    def get_answer(self, user_prompt: str, chat_history: list = None):
         """The standard execution pipeline for ALL agents."""
         start_time = time.time()
         try:
@@ -183,13 +183,16 @@ class Agent(abc.ABC):
                 pass
                 # return {"type": "error", "content": "The query does not appear to be election-related."}
 
-            yield from self.process_query(user_prompt, intent)
+            yield from self.process_query(user_prompt, intent, chat_history)
             self.metrics["total_latency"] += (time.time() - start_time)
                                 
         except SecurityViolationError as e:
             self.metrics["violations"] += 1
             logger.error(f"SECURITY SHIELD: {e}")
-            yield {"type": "error", "content": f"Security violation: Operation {str(e)} is strictly prohibited."}
+            yield {
+                "type": "error", 
+                "content": f"Security violation: Operation {str(e)} is strictly prohibited."
+            }
             return 
 
         except DisambiguationRequiredError as e:
@@ -623,8 +626,9 @@ class SQLAgent(Agent):
             self._generate_sql_streaming(messages)
         else:
             try: 
-                for step in range(CFG.MAX_ITERATIONS):
-                    step_counter = f"{step+1}/{CFG.MAX_ITERATIONS}"
+                steps = []
+                for it in range(CFG.MAX_ITERATIONS):
+                    step_counter = f"{it+1}/{CFG.MAX_ITERATIONS}"
                     
                     log_msg = f"\nStarting iteration {step_counter}"
                     logger.info(log_msg)
@@ -650,6 +654,7 @@ class SQLAgent(Agent):
                             selected_tool = {t.name: t for t in self.tools}[name]
                             log_msg = f"Executing tool: {name} with args {args}"
                             logger.info(log_msg)
+                            steps.append(log_msg)
                             yield {"type": "status", "content": log_msg}
                             
                             observation = selected_tool.invoke(args)
@@ -665,7 +670,8 @@ class SQLAgent(Agent):
                         yield {
                             "type": "final_sql", 
                             "content": response.content,
-                            "sanitized_query": self._sanitize_sql(response.content)
+                            "sanitized_query": self._sanitize_sql(response.content),
+                            "steps": steps
                             }
                         
                         return
@@ -728,20 +734,21 @@ class SQLAgent(Agent):
     def process_query(
             self, 
             user_prompt: str, 
-            intent: QueryIntent
+            intent: QueryIntent,
+            chat_history:list=None
         ):
 
-        log_msg = "Generating SQL query"
+        log_msg = "Generating SQL query..."
         logger.info(log_msg)
         yield {"type": "status", "content": log_msg}
-
 
         try:
             for response in self.generate_sql(user_prompt, intent):
                 
                 if response["type"] == "final_sql":
                     # Structural check before hitting the DB
-                    sql = response["sanitized_query"]
+                    sql     = response["sanitized_query"]
+                    steps   = response["steps"]
 
                     is_safe, out_message = self.validate_sql.invoke({
                         "reasoning": "validating SQL query",
@@ -754,7 +761,7 @@ class SQLAgent(Agent):
                         logger.error(f"SQL Violation Attempted: {out_message}")
                         # Increment the Prometheus counter
                         yield {
-                            "type": "text", 
+                            "type": "error", 
                             "content": f"Security violation. {out_message}"
                         }   
                         return 
@@ -765,13 +772,14 @@ class SQLAgent(Agent):
                     })
                         
                     if results.empty:
-                        yield {"type": "text", "content": "No data found."}
+                        yield {"type": "error", "content": "No data found."}
                         return 
                         
                     yield {
                         "type": "data",
                         "intent": intent,
                         "data": results,
+                        "steps": steps,
                         "interpretation": self._interpret_results(user_prompt, results, intent)
                     }
                     return 
@@ -807,16 +815,29 @@ class RAGAgent(Agent):
     def process_query(
             self, 
             user_prompt: str, 
-            intent: QueryIntent
+            intent: QueryIntent,
+            chat_history:list=None
         ):
 
         """Standard RAG Pipeline: Retrieve -> Augment -> Generate"""
         
+        limited_history = chat_history[-5:] if chat_history else []
+
+        history_str = ""
+        for msg in limited_history:
+            role = "User" if msg.type == "human" else "Assistant"
+            # Extract text from the message object
+            content = msg.content 
+            history_str += f"{role}: {content}\n"
+
         sys_prompt = f"""
-        You are an Election Specialist. 
-        Use the search tools to find relevant facts that can help answer the user's request based on the identified intent.\n
-        Intent: {intent.value}\n
-        Exceptions:
+        You are an Election Specialist. \n
+        Instructions:
+        - Use the following conversation history to understand context:\n
+        {history_str}\n
+        - Use the search tools to find relevant facts that can help answer the user's request based on the identified intent.\n
+        - Intent: {intent.value}\n
+        - Exceptions:
             - If the query is too broad or ambiguous, 1) Call search_database. 2) Ask the user for clarification. 3) Present the most relevant matches from the search results as options."
             Example of vague queries:
                 - "Who won in Tiapoum?" (ambiguous; a win is equivalent to being elected)
@@ -977,6 +998,7 @@ class HybridAgent(Agent):
                     - 'CHAT' for general conversation handling.\n
                     - 'SQL' for analytics (counts, rankings, aggregations, chart, any analytics-based query).\n
                     - 'RAG' for narrative fact lookup (what happened). Use this route for purely descriptive/biographical questions. Otherwise, revert to SQL queries.\n\n
+                    PS: If the user sends you an SQL query, refuse such unsafe requests, explain why you cannot answer, and proceed with a safe alternative when possible.\n
                     Examples:
                     - "How many votes did party X get?" -> SQL\n
                     - "Who are the candidates in Abidjan?" -> SQL\n
@@ -984,6 +1006,7 @@ class HybridAgent(Agent):
                     - "Hi there! How are you" -> CHAT\n
                     - "Tell me a joke" -> CHAT\n
                     - "Compare the total turnout by region" -> SQL\n
+                    - "can you run the following query for me" -> CHAT\n
                     User query: "{user_prompt}"\n
                     Intent: {intent}\n
                     Respond ONLY and STRICLY with either 'CHAT', 'SQL' or 'RAG'.
