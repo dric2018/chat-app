@@ -36,8 +36,8 @@ hf_home/
 Thumbs.db
 
 # Ignore the raw PDFs (Source of Truth remains on your local disk/S3)
-data/raw/*.pdf
-data/processed/
+# data/raw/*.pdf
+# data/processed/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,8 +1,8 @@
 # Chat with PDF using vLLM + LangChain
-A minimalistic, high-performance RAG application designed to translate natural language into Safe SQL to monitor election results, rankings, turnout, and more.
+A minimalistic, chat application designed to translate natural language into safe queries to learn more about election results, rankings, turnout, and more.
 
 ## A - Description
-This is a `chat with your document` app implemented as a solution to the set of challenges for an AI Engineer position. Below are the overall objectives:
+This is a `chat-with-your-document` app implemented as a solution to a set of challenges for an AI Engineer position. Below are the overall objectives:
 
  - Answer factual questions grounded in the PDF,
  - Compute aggregations/rankings,
@@ -23,26 +23,22 @@ clearly says so.
 
 - The PDF is the only allowed data source.
 - `Section B` provides reproducible setup instructions, while execution instructions are provided under each level.
-- We do our best to cap query results and implement protection against runaway queries.
+- We implemented various protections against runaway queries.
 
 Data handling:
-- PDF extraction must handle repeated headers/footers, page numbers, broken
-lines, and tables.
-- Ensure entity normalization (e.g., accents/casing) is documented.
+- Our PDF data extraction strategy handles repeated headers/footers, page numbers, broken
+lines, and tables (using the `pdfblumber` library).
+- We perform entity normalization for accents/casing/punctuations. This is done using the `normalize_text()` function in the [src/utils.py](src/utils.py)
 
 Security:
-- We do our best not to allow destructive DB operations.
-- We do our best not to execute arbitrary code from the model.
-- [Addition] 🔒 100% Local/internal - All processing happens on the target machine, no data leaves and no external API calls.
+- A query validation function prevents the agent from executing destructive DB operations.
+- Execution of arbitrary code from the model is yet to be test 🏗️.
+- [Addition] 🔒 Local deployment - All processing happens on the target machine, no data leaves and no external API calls.
 
 Additional constraints (language):
 - The overall (main) language used in this project is English. However, we make sure natural language requests can be sent in French...but processed in English in the backend.
 
 ## B - Setup and Execution Instructions
-
-### Project Structure
-TBA
-
 
 ### Overall Approach
 The challenge is structured from Level 1 to Level 4.
@@ -66,39 +62,39 @@ debug system quality.
 
 #### How we decided to address the challenge
 
-Although the challenge is structured that way, we have organized our project based on practicality and seamless integration.
+Although the challenge is structured as previously described, we have organized our project based on practicality and seamless integration.
 In fact, some components of the stack are easily built together so we followed out own path through the predefined levels.
 
 ![Election_chat.drawio.png](Election_chat.drawio.png)
 
-We designed the main stack after reviewing the project requirements (see above figure).
+The above figure shows the project's architecture based on the requirements.
 
 #### Target machine specs
-- Dev: Macbook M4
-    - RAM: ~16 GB
+- Dev/Test: Macbook Pro M4 (24GB)
+    - Required Memory: ~16 GB (RAM)
     - Storage: 50-100 GB
 - Tested OS: Unix-based, Darwin (Mac)
 
 PS: The target environment is either GPU- or CPU-based and is not conditioned on the dev environment. 
-Runnning the app on CPU was mainly for debugging and benchmarking purposes, but it happend to be sufficient to have a working stack.
+Runnning the app on CPU was initially meant for debugging and benchmarking purposes, but it happened to be quite sufficient to have a working stack.
 
 #### Main Stack
 - **Docker**: Containerization tool to package the entire stack for consistent deployment across environments.
 #### LLM / Agent orchestration
 - **vLLM**: High-throughput engine for serving LLMs with optimized memory management.
-- **LangChain**: Orchestration framework that links your prompts, retrieval logic, and LLM calls.
+- **LangChain**: Orchestration framework that links the prompts, retrieval logic, and LLM calls.
 
 #### Data/Metrics Visualization
 
-- **Prometheus**: Time-series database that scrapes and stores metrics from vLLM and your Python app.
-- **Grafana**: Visualization platform to view the JSON dashboard and monitor your system health.
+- **Prometheus**: Time-series database that scrapes and stores metrics from vLLM and the chat app.
+- **Grafana**: Visualization platform to view and monitor system health via a dashboard.
 
 #### Frontend
 - **Streamlit**: Python-based web framework for building a clean chat interface with minimal frontend code.
 
 #### General Backend
 - **Python >=3.12**: The primary programming language used for logic, data processing, and glue code.
-- **pdfblumber**: Surgical tool for Digital PDFs which doesn't "guess" where a character is but asks the PDF file for the exact X/Y coordinates of every letter and line. 
+- **pdfblumber**: Surgical tool for digital PDFs which doesn't "guess" where a character is but asks the PDF file for the exact X/Y coordinates of every letter and line. 
 
     - We refrain from using vision-language models (VLMs) like Qwen-VL, Dots OCR, DeepSeek OCR or any LM-based OCR model, to avoid unwanted "hallucinations" of the text based on pixels. 
     - In our case where each decimal point/digit matters, `pdfplumber` (or any of its likes) seems more accurate because it extracts the raw data.
@@ -112,7 +108,7 @@ Once we found a sufficient design, we started by making sure components are prop
 - Streamlit (UI/Access)
 - Nginx (reverse proxy)
 
-See [docker-compose.yml](docker-compose.yml) for more details about how these components are interconected.
+See [docker-compose.yml](docker-compose.yml) for more details about how these components are interconnected.
 
 Note that the observability/monitoring aspects were taken care of during the design and initialization of the stack since it allows easy debugging of the system.
 
@@ -164,11 +160,13 @@ Once the Stack is up and running, you will be able to access each service via:
 
 PS: if the app is deployed on a remote server, the services will be available on `http://${SERVER_IP}:${PORT}` as defined in the `.env` file.
 
+The streamlit app may require a username and a password. Use those that you specified in your `.env` file.
 
 ### Step 2: Implementing the Text-to-SQL Agent 
 
-#### Data base considerations
+#### Database considerations
 For a stable, high-performance RAG workflow involving electoral data, the proposed schema should be split into structural tables (for precise SQL filtering) and vector tables (for semantic search).
+
 Since our data involves multi-line cells and merged cells, using a normalized relational structure is the most reliable way to prevent the "semantic drift" that happens in raw text RAG.
 
 Overall agentic workflow:
@@ -178,40 +176,40 @@ User query
     > SQL (output) Generator
         
         # SQL Generator
-        > Validate
-        > Execute
-        > Return:
+        > Uses the appropriate tools to gather insights from the db
+        > Validates and executes candidate SQL query
+        # Generic behavior (SQLAgent, RAGAgent, HybridAgent)
+        > Returns:
             - Short narrative
             - Dataframe preview
             - Optional chart (if requested)
-            - Not found message if not appropriate answer found
-
+            - Not found message if no appropriate answer found
 
 #### DuckDB
 
 I. Relational Schema
 
-Data base tables are categorized into:
-1. Dimentions: Region, Party, Candidate, Constituency, 
-2. Facts: Turnout (separate), Result (central)
+Database tables are categorized into:
+1. **Dimentions**: Region, Party, Candidate, Constituency, 
+2. **Facts**: Turnout (separate), Result (central)
 
 
 II. Vector Schema 
 
-For retrieval-augmented generation (RAG), we need a "contextual chunk" table. Instead of embedding raw rows from the PDF, we embed human-readable summaries of table rows and store them in our DB for later use. 
+For retrieval-augmented generation (RAG), we need a "contextual chunk" table. Instead of embedding raw rows from the PDF, we embed human-readable summaries of table rows and store them in our DB for later use. These narratives can be found in the `vw_rag_descriptions` table and the `embeddings` table (which also has the corresponding pre-computed embedding vectors).
 
 III. DB Views
 
-Instead of exposing raw tables, we expose curated views (see src/db/views.sql). This is a design choice to simplify data access, enhance security, and provide logical data abstraction.
+Instead of exposing all raw tables, we expose curated views (see [src/db/views.sql](src/db/views.sql)). This is a design choice to simplify data access, enhance security, and provide logical data abstraction.
 
 #### DB Creation
-To create and populate the database, you must run the [notebooks/pdf_data_extraction.ipynb](notebooks/pdf_data_extraction.ipynb) notebook to generate the required .parquet files (source of truth) and then run the [src/db/election_db.py](src/db/election_db.py) script:
+To create and populate the database, you must run the [notebooks/pdf_data_extraction.ipynb](notebooks/pdf_data_extraction.ipynb) notebook to generate the required .parquet files (source of truth) and then run the [src/db/election_db.py](src/db/election_db.py) script as follows:
 
 ```bash
 (.venv) $ python -m src.db.election_db # which will create an instance of ElectionDB and execute its init_db() procedure
 ```
 
-It will create db-related files under `data/processed`:
+The data extraction notebook generates db-related files under `data/processed`:
 - candidates.parquet
 - constituencies.parquet
 - parties.parquet
@@ -220,10 +218,9 @@ It will create db-related files under `data/processed`:
 - turnout.parquet
 
 #### ElectionDB
-DB-related operations are grouped into the `ElectionDB` class. Those are:
+DB-related operations are grouped into the `ElectionDB` class in [src/db/election_db.py](src/db/election_db.py). Those are:
 - `init_db()` for data base initialization
-- `deploy_views()` to create the aforementioned table views
-- `get_data_from_pdf()` to extract data from the PDF; this is the main function used in [notebooks/pdf_data_extraction.ipynb](notebooks/pdf_data_extraction.ipynb)
+- `deploy_views()` to create and deploy table views
 - `load_embedding_model()` to load the specified embedding model
 - `compute_embeddings()` to compute embeddings and insert them into the database
 - Search 
@@ -231,31 +228,95 @@ DB-related operations are grouped into the `ElectionDB` class. Those are:
     - `full_text_search()` (FTS) for performing vector search on the stored data
     - `hybrid_search()` for combining both VS and FTS
 
-#### SQL Agent
+#### Agent Implementaiton
+See [src/agent.py](src/agent.py) for further details about the design of the Agents.
 
-
+- `SQLAgent`: generates SQL queries from the user prompt
+- `RAGAgent`: Interacts with the database to answer questions about explanations, and grounding.
+- `HybridAgent`: routes the user request based on the identified intent and path.
 
 #### Base LLMs
 CPU (thinking disabled):
-- Qwen/Qwen3-0.6B ( ✅ )
-    - MAX_TOKENS = 1024
-- Qwen/Qwen3-1.7B ( ✅ )
-    - MAX_TOKENS = 1024
-- Qwen/Qwen3-4B-Instruct-2507 ( ✅ )
-    - MAX_TOKENS = 4096
-- facebook/opt-125m ( ❌ )
+- Qwen/Qwen3-0.6B ( ✅ ): tiny and fast execution with tool-calling enabled
+    - set MAX_TOKENS = 1024
+- Qwen/Qwen3-1.7B ( ✅ ): tiny and fast, but relatively bigger than previous version. This version and the previous one require less than 16GB of memory to run 
+    - set MAX_TOKENS = 1024
+- Qwen/Qwen3-4B-Instruct-2507 ( ✅ ):  small model, much slower but more robust and more reliable with tool manipulation
+    - set MAX_TOKENS = 4096
+- facebook/opt-125m ( ❌ ): could not make it work with the setup
 
 ### Overall Progress
 Level 1: Analytics-First Agent (95% Complete)
 - Ingestion: ✅ 
 
->A reproducible DuckDB pipeline with normalized entities and relational joins was presented in Setp 2.
+>A reproducible DuckDB pipeline with normalized entities and relational joins was presented in Setp 2. See [src/db/election_db.py](src/db/election_db.py) and [src/db/views.sql](src/db/views.sql) for additional details.
 - SQL Agent: ✅ 
 > Intent classification ✅
 
-> Restricted SQL generation with security guardrails (no forbidded statement is executed) ✅.
+> Restricted SQL generation with security guardrails; no forbidded statement is executed and violations are blocked ✅.
 
-> Chart Generation: We have the `CHART` intent and dataframes ready; the streamlit UI can display the charts via plotly, though it can be improved ✅.
+> Chart Generation: We have the `CHART` intent and the agent returns the necessary data; the streamlit UI displays the charts via plotly, though it can be improved ✅. Currently, only bar charts and histograms are supported.
+
+Level 2: Hybrid Router (90% Complete)
+RAG Indexing: ✅
+> Created the `embeddings` table and its corresponding view `vw_rag_descriptions` for results and turnout.
+
+Hybrid Routing: ✅. 
+> Logic for SQL and RAG merged into a `HybridAgent` that uses the appropriate pipeline based on the user request.
+
+> A CHAT route was added in case the user asks general questions that may not be directly related to the elections. 
+
+> DuckDB has native support for string similarity functions like `levenshtein`, `hamming`, and `jaro_winkler_similarity`. Thus we mainy rely on this for that matter.
+
+Citations: 🏗️ Not yet implemented. However, we extracted the page_id (source page number) during the ingestion process. 
+
+> `ENTITY_ID` present in the RAG-ready tables; 
+> Need to map it back to `page_id` during the final response, after we ensure `page_id` and `row_id` are extracted and saved during ingestion.
+
+Level 3: Improved Agentic (25% Complete)
+Disambiguation: 🏗️ In Progress. 
+
+> Current ingestion handles some normalization, but the Agent doesn't yet ask the user for clarification nor does it perform auto-disambiguation.
+
+Session Memory: 🏗️ Not yet implemented. 
+
+> This is currently handled using `st.session_state` in the Streamlit frontend. We did not spend time adding persistent memory, but it should be noted that more advanced UI like `Open WebUI` offer this for free.
+
+Level 4: Observability & Evaluation (60% Complete)
+
+Observability: ✅ Started. 
+
+> Centralized logger and a metrics dictionary in the `Agent` class. ✅
+
+> Grafana dashboard to visualize LLM metrics ✅
+
+Available metircs include:
+- Final response latency
+- Token usage/generated
+- KV cache % (GPU & CPU)
+- Total Requests Completed
+- Total Tokens (Gen / Prompt)
+- Avg Tokens per Request
+- User Perceived Latency (P95)
+- System Throughput (Tokens/s)
+- Workload Distribution (Running vs Waiting)
+- vLLM CPU Usage
+- Cache Hit Rate (Prefix Caching)
+
+Traceability: 🏗️ Not yet implemented. 
+
+> Can think about integrating with Grafana/Loki, which would fully satisfy the "trace each request end-to-end" requirement.
+
+> Current Grafana dashboard can be upgraded with additional metrics most of which are currently logged.
+- Intent classification \& routing 🏗️
+- Retrieval results 🏗️
+- SQL generated and validation outcome
+tool calls (charts) and timings 🏗️
+- Blocked Security Violations 🏗️
+
+Evaluation Suite: 🏗️ Not yet implemented. 
+
+> Still need an offline script to measure "Fact lookup accuracy" and "Citation faithfulness".
 
 #### Typical Workflow: The "Ask-Route-Execute" Loop
 
@@ -264,82 +325,23 @@ Level 1: Analytics-First Agent (95% Complete)
     - The HybridAgent uses the LLM to categorize this.
     - Result: QueryIntent.RANKING.
     
-- Routing (route_query):
+- Routing:
     - The HybridAgent sees RANKING and internally delegates the task to its SQLAgent instance.
 
 - Specialist Processing (process_query):
     - The SQLAgent takes over.
-    - It retrieves the Schema Context (Tool Call 1).
-    - It generates a SELECT statement using SUM and ORDER BY.
-    - It runs validate_sql to ensure no "forbidden" keywords are present.
+    - It retrieves the Schema Context (Tool Call 1/describe_db) and then continues with any necessary tool calls until sufficient insights are gathered.
+    - It generates a query using appropriate statements.
+    - It runs `validate_sql` to ensure SQL query does not violate security principles.
 
 - Data Retrieval:
     - The SQL is executed against DuckDB in read_only mode.
     - Result: A DataFrame containing the candidate and vote count.
 
 - Interpretation (_interpret_results):
-    - The raw DataFrame is turned into a natural sentence: "In Abidjan, Candidate X leads with 50,000 votes."
+    - The raw DataFrame is turned into a natural sentence: "In Abidjan, Candidate X leads with Y votes."
 
-- Final Response: The HybridAgent returns a structured dictionary containing the text, the raw data (for a frontend table), and the identified intent.
-
-
-Level 2: Hybrid Router (90% Complete)
-RAG Indexing: ✅
-> Created the `embeddings` table and its corresponding view for results and turnout.
-
-Hybrid Routing: ✅. 
-> Logic for SQL and RAG merged into a `HybridAgent` that uses the appropriate pipeline based on the user request. A CHAT route was added in case the user asks general questions that may not be directly related to the elections. 
-
-> DuckDB has native support for string similarity functions like `levenshtein`, `hamming`, and `jaro_winkler_similarity`. Thus we mainy rely on this for that matter.
-
-Citations: 🏗️ Not implemented. However, we extracted the page_id (source page number) during the ingestion process. 
-
-> `ENTITY_ID` present in the RAG table; 
-> Need to map it back to `page_id` during the final response, after we ensure `page_id` and `row_id` are extracted and saved during ingestion.
-
-Level 3: Improved Agentic (20% Complete)
-Disambiguation: 🏗️ In Progress. 
-
-> Current ingestion handles some normalization, but the Agent doesn't yet ask the user for clarification.
-
-Session Memory: 🏗️ Not implemented. 
-
-> This can be handled using st.session_state in the Streamlit frontend. We did not spend time adding persistent memory since more advanced UI like `Open WebUI` offer this for free.
-
-Level 4: Observability & Evaluation (60% Complete)
-
-Observability: ✅ Started. 
-
-> Centralized logger and a metrics dictionary in the `Agent` class.
-
-> Grafana dashboard to visualize LLM metrics
-
-Traceability: 🏗️ Not implemented. 
-
-> Can think about integrating with Grafana/Loki, which would fully satisfy the "trace each request end-to-end" requirement.
-
-> Current Grafana dashboard can be upgraded with additional metrics
-- Intent classification \& routing (currently logged) 🏗️
-- Retrieval results 🏗️
-- SQL generated and validation outcome
-tool calls (charts) and timings 🏗️
-- Final response latency ✅
-- Token usage/generated ✅
-- KV cache % (GPU & CPU) ✅
-- Total Requests Completed ✅
-- Total Tokens (Gen / Prompt) ✅
-- Avg Tokens per Request ✅
-- User Perceived Latency (P95) ✅
-- System Throughput (Tokens/s) ✅
-- Workload Distribution (Running vs Waiting) ✅
-- vLLM CPU Usage ✅
-- Cache Hit Rate (Prefix Caching) ✅
-- Blocked Security Violations 🏗️
-
-Evaluation Suite: 🏗️ Not implemented. 
-
-> Still need an offline script to measure "Fact lookup accuracy" and "Citation faithfulness".
-
+- Final Response: The HybridAgent returns a structured dictionary containing the final answer and the raw data for a frontend table and/or chart generation.
 
 ### Deliverables (all levels)
 - Source code repo with:
@@ -350,12 +352,12 @@ Evaluation Suite: 🏗️ Not implemented.
 
 - Short write-up:
     - Video capture of the solution
-    - Description of the work done
+    - Description of the work done ✅
     - schema decisions ✅
     - routing/guardrails (if implemented) ✅; See [src/db/sql_agent.py](src/db/sql_agent.py)
     - known limitations + next steps TBA
 
-To be added:
+To be added/Future work:
 - Persistent messages history
 - Refined Monitoring dashborad
 

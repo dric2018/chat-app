@@ -25,6 +25,8 @@ class CFG:
     DATA_DIR                = osp.join(PROJECT_ROOT, "data")
     PROCESSED_DATA_DIR      = osp.join(DATA_DIR, "processed")
 
+    DEBUG_MODE              = True
+
     # Server settings
     UI_PORT                 = os.getenv("UI_PORT", 8501)
     PROMETHEUS_PORT         = os.getenv("PROMETHEUS_PORT", "9090")

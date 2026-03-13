@@ -58,16 +58,22 @@ def check_stack_health():
     return up
 
 def normalize_text(
-        text, 
+        text:str, 
         remove_punctuation:bool=False, 
         lowercase:bool=True
     ):
+
+    """
+        Performs entity normalization for accents/casing/punctuations
+    """
+
+    punctuation_to_remove = '!"#$%&\'()*+,./:;<=>?@[\\]^_`{|}~'
     
     if lowercase:
         text = text.lower()
 
     if remove_punctuation:
-        translator = str.maketrans(string.punctuation, ' ' * len(string.punctuation))
+        translator = str.maketrans(punctuation_to_remove, ' ' * len(punctuation_to_remove))
         text = text.translate(translator)
     
     text = text.strip()

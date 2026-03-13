@@ -87,10 +87,11 @@ def render_agent_response(response):
         st.markdown(raw_text)
 
     # HANDLE AGENT INVESTIGATION STEPS (Tool Reasoning)
-    if "steps" in response and response["steps"]:
-        with st.expander("🔍 Investigation Path (Tools used)", expanded=False):
-            for i, step in enumerate(response["steps"]):
-                st.markdown(f"**Step {i+1}:** {step}")
+    if CFG.DEBUG_MODE:
+        if "steps" in response and response["steps"]:
+            with st.expander("🔍 Investigation Path (Tools used)", expanded=False):
+                for i, step in enumerate(response["steps"]):
+                    st.markdown(f"**Step {i+1}:** {step}")
 
     # HANDLE DATA & VISUALS
     if response["type"] == "data":
@@ -109,7 +110,6 @@ def render_agent_response(response):
 def query_llm(input_text: str):
 
     current_history = st.session_state.get("messages", [])
-
 
     final_answer = None
 

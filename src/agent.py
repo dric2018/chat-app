@@ -12,15 +12,10 @@ import duckdb
 
 from enum import Enum
 
-from functools import partial
-
 from db.election_db import ElectionDB
 
-import inspect
-
-from langchain_core.tools import tool, BaseTool, StructuredTool
+from langchain_core.tools import tool, BaseTool
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
 import pandas as pd
@@ -31,7 +26,7 @@ import re
 import sqlparse
 
 import time
-from typing import Tuple, Dict, List, Any, Literal
+from typing import Tuple, Literal
 import traceback
 
 from utils import get_security_counter
@@ -465,7 +460,7 @@ class SQLAgent(Agent):
     
     @tool
     @staticmethod
-    def execute_read_query(sql_query: str, reasoning:str) -> str:
+    def execute_read_query(sql_query: str, reasoning:str):
         """Executes a SQL SELECT query and returns the results. Use only for data retrieval."""
         
         logger.info(f"LLM Reasoning (execute_read_query): {reasoning}")
@@ -476,12 +471,20 @@ class SQLAgent(Agent):
         try: 
             with duckdb.connect(str(CFG.DB_PATH), read_only=True) as conn:
                 results = conn.execute(sql_query).df().drop_duplicates()
-
+                
+                yield {
+                    "type": "status",
+                    "content": results
+                }
         except Exception as e:
             out_msg = f"Could not execute query. {e}"
             logger.error(out_msg, exc_info=True)
 
-        return results, out_msg
+            yield {
+                    "type": "error",
+                    "content": out_msg
+                    }
+            return
 
     def _generate_sql_streaming(
             self,
@@ -603,7 +606,10 @@ class SQLAgent(Agent):
                 - Only use the allowed tables as specified in this list: {CFG.ALLOWED_TABLES}\n
                 - You can use describe_table to see exact column names in previously listed tables.\n
                 - You can use sample_data to understand how values are formatted and connected between the identified tables.\n
-            - HARD CONSTRAINT: Use execute_read_query to ensure the SQL query actually works before returning it.\n
+                - The user can ask about data for a region or constituency or a candidate with typos in their request. Be flexible about these by checking the relevant tables/fields for similar names/texts.\n
+            - HARD CONSTRAINT: \n
+                - Use execute_read_query to ensure the SQL query actually works before returning it.\n
+                - If execute_read_query fails, check to the error message to see if you can make changes to the query and retry.\n
             - Once you have gathered sufficient evidence, stop exploring the database and generate the final SQL SELECT query. \n
             - Make sure to add any useful filed/column that may ease later interpretation of results\n
             - Formulate your query approach based on your professional judgment of the database structure.\n
@@ -677,7 +683,11 @@ class SQLAgent(Agent):
                         return
                         
                     
-                yield {"type": "error", "content": "Maximul iterations reached."}
+                yield {
+                    "type": "error", 
+                    "content": "Maximul iterations reached.",
+                    "steps": steps
+                    }
                 return
 
             except Exception as e:
@@ -771,8 +781,8 @@ class SQLAgent(Agent):
                         "reasoning": "Retrieving data from database"
                     })
                         
-                    if results.empty:
-                        yield {"type": "error", "content": "No data found."}
+                    if results.empty or results is None:
+                        yield {"type": "error", "content": "No data found. Data retrieval query came back empty."}
                         return 
                         
                     yield {
@@ -1075,9 +1085,9 @@ class HybridAgent(Agent):
 
             except Exception as e: 
                 error_trace = traceback.format_exc()
-                logger.error(f"ROUTING ERROR: {str(e)}\n{error_trace}")
-                yield {"type": "error", "content": "⚠️ Routing failed. Falling back to rule-based logic..."}
-                yield from self.rule_based_routing(user_prompt, intent)
+                log_msg = f"⚠️ Routing failed. {str(e)}\n{error_trace}"
+                logger.error(log_msg)
+                yield {"type": "error", "content": log_msg}
 
 if __name__ == "__main__":
     agent = HybridAgent(vllm_url=f"http://vllm:{CFG.VLLM_PORT}/v1")

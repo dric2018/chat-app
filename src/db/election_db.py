@@ -385,7 +385,7 @@ class ElectionDB:
                         VALUES (?, ?, ?, ?)
                     """, insert_data)
                 except Exception as e:
-                    logger.error(f"{e}", exc_info=True)
+                    logger.error(f"{e}")
 
             logger.info(f"✅ RAG table synced with {len(data)} vectors.")
 
