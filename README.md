@@ -239,9 +239,9 @@ See [src/agent.py](src/agent.py) for further details about the design of the Age
 CPU (thinking disabled):
 - Qwen/Qwen3-0.6B ( ✅ ): tiny and fast execution with tool-calling enabled
     - set MAX_TOKENS = 1024
-- Qwen/Qwen3-1.7B ( ✅ ): tiny and fast, but relatively bigger than previous version. This version and the previous one require less than 16GB of memory to run 
+- Qwen/Qwen3-1.7B ( ✅ ): tiny and fast, but relatively bigger than previous version. This version and the previous one require less than 16GB of memory to run.
     - set MAX_TOKENS = 1024
-- Qwen/Qwen3-4B-Instruct-2507 ( ✅ ):  small model, much slower but more robust and more reliable with tool manipulation
+- Qwen/Qwen3-4B-Instruct-2507 ( ✅ ):  small model, much slower but more robust and more reliable with tool manipulation as well as text generation.
     - set MAX_TOKENS = 4096
 - facebook/opt-125m ( ❌ ): could not make it work with the setup
 

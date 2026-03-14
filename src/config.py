@@ -4,8 +4,6 @@ load_dotenv() # Loading vars from .env
 import os
 import os.path as osp
 
-from huggingface_hub import login
-
 from pathlib import Path
 from pprint import pprint
 
@@ -39,7 +37,6 @@ class CFG:
     DOCKER_CON_IP           = "http://host.docker.internal"
     VLLM_API_KEY            = os.getenv("VLLM_API_KEY", "token-is-ignored")
     HF_TOKEN                = os.getenv('HF_TOKEN', '')
-    login(HF_TOKEN)
     VLLM_BASE_URL           = f"http://{SERVER_IP}:{VLLM_PORT}/v1"
 
     # DB Paths
@@ -55,7 +52,8 @@ class CFG:
                                "vw_rag_descriptions",
                                "embeddings"
                                "candidate",
-                               "constituency"
+                               "constituency",
+                               "region"
                                ]
     # DB
     SQL_MAX_LIMIT           = 50

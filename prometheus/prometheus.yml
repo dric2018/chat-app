@@ -1,5 +1,5 @@
 global:
-  scrape_interval: 5s # scrape metrics every 5s
+  scrape_interval: 10s # scrape metrics every 10s
   evaluation_interval: 30s
 
 scrape_configs:
@@ -12,10 +12,17 @@ scrape_configs:
     static_configs:
     - targets: ['prometheus:9090']
 
-  - job_name: 'election_app'
+  - job_name: 'streamlit-app'
     honor_timestamps: false  # Force Prometheus to use its own current clock
     metrics_path: '/metrics'
     static_configs:
-      - targets: ['streamlit-app:8001']
+    - targets: ['streamlit-app:8001']
+      labels:
+        env: 'prod'
 
+  - job_name: 'notebook-test'
+    static_configs:
+    - targets: ['host.docker.internal:8002']
+      labels:
+        env: 'dev'
       

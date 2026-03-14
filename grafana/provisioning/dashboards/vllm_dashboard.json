@@ -61,7 +61,7 @@
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 18, "y": 0 },
-      "targets": [{ "expr": "sum(rag_sql_security_violations_total)" }],
+      "targets": [{ "expr": "sum by (env) (rag_sql_security_violations_total)" }],
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -108,7 +108,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 6, "x": 0, "y": 20 },
       "targets": [{ 
-        "expr": "rate(process_cpu_seconds_total[1m]) * 100",
+        "expr": "avg(rate(process_cpu_seconds_total[1m]) * 100)", 
         "legendFormat": "vLLM Process CPU %" 
       }],
       "fieldConfig": {
@@ -121,7 +121,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 9, "x": 6, "y": 20 },
       "targets": [{ 
-        "expr": "process_resident_memory_bytes / 1024 / 1024 / 1024",
+        "expr": "sum(process_resident_memory_bytes) / 1024 / 1024 / 1024",
         "legendFormat": "vLLM RAM (GB)" 
       }],
       "fieldConfig": {
@@ -134,7 +134,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "targets": [{ 
-        "expr": "(vllm:gpu_cache_usage_perc OR vllm:kv_cache_usage_perc OR on() vector(0)) * 100",
+        "expr": "avg(vllm:kv_cache_usage_perc OR vllm:cpu_cache_usage_perc OR on() vector(0)) * 100",
         "legendFormat": "KV Cache %" 
       }],
       "fieldConfig": {
@@ -142,13 +142,13 @@
       }
     },
     {
-    "title": "RAG Cache Hit Rate (Prefix Caching)",
+    "title": "Cache Hit Rate (Prefix Caching)",
     "type": "gauge",
     "datasource": { "type": "prometheus", "uid": "${datasource}" },
     "gridPos": { "h": 8, "w": 9, "x": 15, "y": 20 },
     "targets": [
       {
-        "expr": "(rate(vllm:prefix_cache_hits_total[5m]) / rate(vllm:prefix_cache_queries_total[5m])) * 100",
+        "expr": "(sum(rate(vllm:prefix_cache_hits_total[5m])) / sum(rate(vllm:prefix_cache_queries_total[5m]))) * 100",
         "legendFormat": "Hit Rate %"
       }
     ],

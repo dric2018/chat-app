@@ -15,7 +15,7 @@ logging.basicConfig(
     ]
 )
 
-to_skip = ["httpx", "httpcore", "openai"]
+to_skip = ["httpx", "httpcore", "openai", "huggingface_hub"]
 for lib in to_skip:
     logging.getLogger(lib).setLevel(logging.WARNING)
 

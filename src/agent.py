@@ -21,12 +21,13 @@ from langchain_openai import ChatOpenAI
 import pandas as pd
 from pprint import pprint
 from pydantic import BaseModel, Field
+from prometheus_client import start_http_server
 
 import re
 import sqlparse
 
 import time
-from typing import Tuple, Literal
+from typing import Tuple, Literal, Optional
 import traceback
 
 from utils import get_security_counter
@@ -67,13 +68,13 @@ class DatabaseConnectionError(BaseAgentException):
     """Raised when DuckDB fails to connect or a query is syntactically invalid."""
     pass
 
-class DisambiguationRequiredError(BaseAgentException):
-    """Raised when a query is too vague and needs user input (e.g., 'Tiapoum')."""
-    pass
 
-
-# Define the metric that matches your Grafana 'expr'
 VIOLATIONS_COUNTER = get_security_counter()
+
+try:
+    start_http_server(port=8001, addr='0.0.0.0')    
+except OSError:
+    pass 
 
 class Agent(abc.ABC):
     def __init__(
@@ -171,29 +172,25 @@ class Agent(abc.ABC):
         try:
             yield {"type": "status", "content": "Identifying intent..."}
             intent = self._get_intent(user_prompt)
-            yield {"type": "status", "content": f"✅ Identified intent: {intent.name}."}
+            yield {"type": "status", "content": f"✅ Intent: {intent.name}."}
             
             if intent == QueryIntent.INVALID:
                 yield {"type": "status", "content": "This query does not appear to be election-related."}
                 pass
                 # return {"type": "error", "content": "The query does not appear to be election-related."}
 
-            yield from self.process_query(user_prompt, intent, chat_history)
+            for out in self.process_query(user_prompt, intent, chat_history):
+                yield out
             self.metrics["total_latency"] += (time.time() - start_time)
                                 
         except SecurityViolationError as e:
             self.metrics["violations"] += 1
+            VIOLATIONS_COUNTER.inc()
             logger.error(f"SECURITY SHIELD: {e}")
             yield {
                 "type": "error", 
                 "content": f"Security violation: Operation {str(e)} is strictly prohibited."
             }
-            return 
-
-        except DisambiguationRequiredError as e:
-            logger.info(f"🔍 CLARIFICATION: {e}")
-            # This can trigger the return of the 'options' list we discussed
-            yield {"type": "clarification", "content": str(e)}
             return 
 
         except (DatabaseConnectionError, Exception) as e:
@@ -418,7 +415,7 @@ class SQLAgent(Agent):
             parsed = sqlparse.parse(sql)
             if len(parsed) > 1:
                 metrics["violations"] += 1
-                VIOLATIONS_COUNTER.inc()                
+                get_security_counter().inc()                
                 out_message = "Security Violation: Multiple queries detected."
                 return is_query_valid, out_message
             
@@ -428,14 +425,14 @@ class SQLAgent(Agent):
             # We ensure the very first Data Manipulation Language (DML) token is 'SELECT'
             if clean_sql.get_type() != "SELECT":
                 metrics["violations"] += 1
-                VIOLATIONS_COUNTER.inc()                
+                get_security_counter().inc()                
                 out_message = f"Security Violation: Forbidden command type '{clean_sql.get_type()}'."
                 return is_query_valid, out_message
             
             # Ensuring only allowed tables are used
             if not any(t in clean_sql.value.lower() for t in CFG.ALLOWED_TABLES):
                 metrics["violations"] += 1
-                VIOLATIONS_COUNTER.inc()
+                get_security_counter().inc()
                 out_message = f"Security Violation: Unauthorized table access detected.\nSQL: {clean_sql.value}"
                 return is_query_valid, out_message            
 
@@ -444,7 +441,7 @@ class SQLAgent(Agent):
             for token in clean_sql.flatten():
                 if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in forbidden:
                     metrics["violations"] += 1
-                    VIOLATIONS_COUNTER.inc()
+                    get_security_counter().inc()
                     out_message = f"Security Violation: Forbidden keyword '{token.value}' detected."
                     return is_query_valid, out_message
             
@@ -474,11 +471,12 @@ class SQLAgent(Agent):
                 
                 yield {
                     "type": "status",
-                    "content": results
+                    "content": results,
+                    "message": out_msg
                 }
         except Exception as e:
-            out_msg = f"Could not execute query. {e}"
-            logger.error(out_msg, exc_info=True)
+            out_msg = f"Could not execute query.\n{str(e)}"
+            logger.error(out_msg)
 
             yield {
                     "type": "error",
@@ -606,10 +604,9 @@ class SQLAgent(Agent):
                 - Only use the allowed tables as specified in this list: {CFG.ALLOWED_TABLES}\n
                 - You can use describe_table to see exact column names in previously listed tables.\n
                 - You can use sample_data to understand how values are formatted and connected between the identified tables.\n
-                - The user can ask about data for a region or constituency or a candidate with typos in their request. Be flexible about these by checking the relevant tables/fields for similar names/texts.\n
+                - The user can ask about data for a mispelled region or constituency or a candidate. Be flexible about these typos/errors by checking the relevant tables/fields for similar names/texts in case no direct match is found.\n
             - HARD CONSTRAINT: \n
                 - Use execute_read_query to ensure the SQL query actually works before returning it.\n
-                - If execute_read_query fails, check to the error message to see if you can make changes to the query and retry.\n
             - Once you have gathered sufficient evidence, stop exploring the database and generate the final SQL SELECT query. \n
             - Make sure to add any useful filed/column that may ease later interpretation of results\n
             - Formulate your query approach based on your professional judgment of the database structure.\n
@@ -636,7 +633,7 @@ class SQLAgent(Agent):
                 for it in range(CFG.MAX_ITERATIONS):
                     step_counter = f"{it+1}/{CFG.MAX_ITERATIONS}"
                     
-                    log_msg = f"\nStarting iteration {step_counter}"
+                    log_msg = f"\nStarting iteration [{step_counter}]"
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
                     response = self.llm_with_tools.invoke(messages)
@@ -658,18 +655,26 @@ class SQLAgent(Agent):
                             call_id = tool_req.get("id", "manual")
 
                             selected_tool = {t.name: t for t in self.tools}[name]
-                            log_msg = f"Executing tool: {name} with args {args}"
-                            logger.info(log_msg)
-                            steps.append(log_msg)
-                            yield {"type": "status", "content": log_msg}
                             
+                            start_call = time.time()
                             observation = selected_tool.invoke(args)
+                            call_duration = time.time() - start_call
+                            
+                            log_msg = f"Using Tool {name}. Reasoning: {args["reasoning"]} [Completed in {call_duration:.5f}s]"
+                            logger.info(log_msg)  
+                            steps.append(log_msg)
+                            
+                            yield {"type": "status", "content": f"Using Tool {name}. Reasoning: {args["reasoning"]}"}
+                            
                             # logger.info(f"Tool output: {str(observation)}")
 
                             messages.append(ToolMessage(content=str(observation)+f"\nIteration: {step_counter}", tool_call_id=call_id))
                         continue
                     else:
-                        logger.info(f"No tool call identified")
+                        msg = "No tool call identified" 
+                        if len(steps) > 0:
+                            msg = "No more tool call identified" 
+                        logger.info(msg)
 
                     if response.content:
                         # If it's just the final SQL string
@@ -692,7 +697,8 @@ class SQLAgent(Agent):
 
             except Exception as e:
                 logger.critical(f"Query generation error: {e}", exc_info=True)
-                return {"type": "error", "content": str(e)}
+                yield {"type": "error", "content": str(e)}
+                return
             
     def _sanitize_sql(self, text: str) -> str:
         """
@@ -748,18 +754,16 @@ class SQLAgent(Agent):
             chat_history:list=None
         ):
 
-        log_msg = "Generating SQL query..."
-        logger.info(log_msg)
-        yield {"type": "status", "content": log_msg}
-
         try:
             for response in self.generate_sql(user_prompt, intent):
-                
+                yield response
                 if response["type"] == "final_sql":
                     # Structural check before hitting the DB
                     sql     = response["sanitized_query"]
                     steps   = response["steps"]
-
+                    
+                    logger.info(f"Generated SQL: {sql}")
+                    
                     is_safe, out_message = self.validate_sql.invoke({
                         "reasoning": "validating SQL query",
                         "sql": sql,
@@ -775,24 +779,41 @@ class SQLAgent(Agent):
                             "content": f"Security violation. {out_message}"
                         }   
                         return 
+
+                    results = None  
+                    for out in self.execute_read_query.invoke({
+                            "sql_query": sql,
+                            "reasoning": "Retrieving data from database"
+                        }):
+
+                        if out.get("type") == "status":
+                            yield out                         
+                            results = out["content"]
+                        
+                        if out.get("type") == "error":
+                            fix_prompt= f"""
+                            Based on this message: {out["content"]}, what can you do to fix this error? \n
+                            Answer directly with the fixed query keeping the original parameters (e.g. order or limit) unchanged.
+                            Original query: {sql}
+                            """
+
+                            results =  self.client.invoke([HumanMessage(content=fix_prompt)]).content                        
                             
-                    results, _ = self.execute_read_query.invoke({
-                        "sql_query": sql,
-                        "reasoning": "Retrieving data from database"
-                    })
-                        
-                    if results.empty or results is None:
-                        yield {"type": "error", "content": "No data found. Data retrieval query came back empty."}
-                        return 
-                        
-                    yield {
-                        "type": "data",
-                        "intent": intent,
-                        "data": results,
-                        "steps": steps,
-                        "interpretation": self._interpret_results(user_prompt, results, intent)
-                    }
-                    return 
+                            yield out
+                            return 
+
+                    # if results.empty or results is None:
+                    #     yield {"type": "error", "content": "No data found. Data retrieval query came back empty."}
+                    #     return 
+                    if results is not None and not results.empty:
+                        yield {
+                            "type": "data",
+                            "intent": intent,
+                            "data": results,
+                            "steps": steps,
+                            "final_sql": sql,
+                            "interpretation": self._interpret_results(user_prompt, results, intent)
+                        }
         except Exception as e:
             logger.error(f"Query generation error: {e}", exc_info=True)
             yield {"type": "error", "content": str(e)}
@@ -830,6 +851,8 @@ class RAGAgent(Agent):
         ):
 
         """Standard RAG Pipeline: Retrieve -> Augment -> Generate"""
+        
+        yield {"type": "status", "content": "reparing for RAG..."}       
         
         limited_history = chat_history[-5:] if chat_history else []
 
@@ -903,9 +926,10 @@ class RAGAgent(Agent):
                     messages.append(
                         ToolMessage(content=clarification_prompt, tool_call_id=call_id)
                     )
-                yield {"type": "status", "content": "Synthesizing final answer..."}               
-                final_answer = self.llm_with_tools.invoke(messages)
                 
+                yield {"type": "status", "content": "Synthesizing final answer..."}               
+                
+                final_answer = self.llm_with_tools.invoke(messages)
                 yield {
                     "type": "text",
                     "intent": intent,
@@ -919,16 +943,25 @@ class RAGAgent(Agent):
                     "type": "text",
                     "intent": intent,
                     "content": response.content
-                }          
+                }     
+                return     
         except Exception as e:
             yield {
                 "type": "error", 
                 "content": f"Could not retrieve response. {e}",
                 "attempt": response.content
             }
+            return
 
-class Route(BaseModel):
-    choice: Literal["CHAT", "SQL", "RAG"] = Field(description="The chosen route")
+class RouteValidation(BaseModel):
+    decision: Literal["execute", "clarify"] = Field(
+        description="Whether to proceed with the tool or ask for more info."
+    )
+    route: Literal["CHAT", "SQL", "RAG"]  = Field(description="The chosen route")
+    clarification_question: Optional[str] = Field(
+        description="If clarify, ask the clarifying question directly to the user?"
+    )
+    reasoning: str = Field(description="Why is this decision being made?")
 
 class HybridAgent(Agent):    
     def __init__(
@@ -936,12 +969,11 @@ class HybridAgent(Agent):
         vllm_url:str=CFG.VLLM_BASE_URL
     ):
         super().__init__(vllm_url=vllm_url)
+        # agents
         self.client.openai_api_base = vllm_url
-        # logger.info(f"HybridAgent::Setting {vllm_url=}")
         self.sql_expert = SQLAgent(vllm_url=vllm_url)
         self.rag_expert = RAGAgent(vllm_url=vllm_url)
 
-       # Defensive merge: 'or []' ensures we never add None
         sql_tools = self.sql_expert.tools
         rag_tools = self.rag_expert.tools
         
@@ -949,7 +981,7 @@ class HybridAgent(Agent):
         self.tools = list(all_tools.values())  
 
         self.router_llm = self.client.with_structured_output(
-            Route, 
+            RouteValidation, 
             method="json_schema",  # or "function_calling"
             tools=None, 
             include_raw=False,
@@ -996,55 +1028,61 @@ class HybridAgent(Agent):
             Analytics (Aggregation, Ranking, Charts) -> SQL
             Fact Lookup (General) -> RAG
             """
-            path = None
+
             try:
                 if use_llm_routing:
                     log_msg = "Identifying decision route using LLM routing..."
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
-                    
+
                     routing_prompt = f"""
-                    Determine the best system for this query: \n
-                    - 'CHAT' for general conversation handling.\n
-                    - 'SQL' for analytics (counts, rankings, aggregations, chart, any analytics-based query).\n
-                    - 'RAG' for narrative fact lookup (what happened). Use this route for purely descriptive/biographical questions. Otherwise, revert to SQL queries.\n\n
-                    PS: If the user sends you an SQL query, refuse such unsafe requests, explain why you cannot answer, and proceed with a safe alternative when possible.\n
-                    Examples:
-                    - "How many votes did party X get?" -> SQL\n
-                    - "Who are the candidates in Abidjan?" -> SQL\n
-                    - "Can you describe the turnout in Yamoussoukro?"\n
-                    - "Hi there! How are you" -> CHAT\n
-                    - "Tell me a joke" -> CHAT\n
-                    - "Compare the total turnout by region" -> SQL\n
-                    - "can you run the following query for me" -> CHAT\n
-                    User query: "{user_prompt}"\n
-                    Intent: {intent}\n
-                    Respond ONLY and STRICLY with either 'CHAT', 'SQL' or 'RAG'.
-                    """        
+                        You are a routing and validation expert employed in the analysis process of the 2025 legislative elections in Côte d'Ivoire. 
+                        Analyze the user query: "{user_prompt}"
+                        Context Intent: {intent}
 
-                    messages = [
-                        SystemMessage(content=routing_prompt), 
-                        HumanMessage(content=user_prompt)
-                    ]    
+                        Your goal is to choose the correct system (CHAT, SQL, or RAG) AND decide if you have enough information to proceed.
 
-                    response = self.router_llm.invoke(messages)
-                    # Debug print to see exactly what the LLM returned
-                    logger.debug(f"Router raw response: {response}")
-                    
-                    # Handle both Pydantic objects and Dictionaries
-                    if hasattr(response, 'choice'):
-                        path = response.choice
-                    elif isinstance(response, dict):
-                        path = response.get('choice')
-                    
-                    if not path:
-                        raise ValueError("LLM returned an empty routing choice")
+                        SYSTEM RULES:
+                        - SQL: For analytics, counts, rankings, aggregations, and charts.
+                        - RAG: For narrative/descriptive facts (events, "what happened"). Use this route for purely descriptive/biographical questions. Otherwise, revert to SQL queries.\n\n
+                        - CHAT: For greetings, jokes, or unsafe/direct SQL code requests (refuse these).
 
-                    log_msg = f"✅ Identified route: {path}"
+                        Examples:
+                            - "How many votes did party X get?" -> SQL\n
+                            - "Who are the candidates in Abidjan?" -> SQL\n
+                            - "Can you describe the turnout in Yamoussoukro?"\n
+                            - "Hi there! How are you" -> CHAT\n
+                            - "Tell me a joke" -> CHAT\n
+                            - "Compare the total turnout by region" -> SQL\n
+                            - "can you run the following query for me" -> CHAT\n
+
+                        VALIDATION RULES:
+                        - Select 'clarify' if the query is missing a key filter (e.g., "Show me votes" without a party or region).
+                        - Select 'execute' only if you can immediately generate a search or a query.
+                        
+                        PS: If the user sends you an SQL query, refuse such unsafe requests, explain why you cannot answer, and proceed with a safe alternative when possible.
+                        """     
+    
+                    response = self.router_llm.invoke(routing_prompt)
+
+                    logger.info(f"Router raw response: {response}")
+
+                    log_msg = f"✅ Route: {response.route}; Decision: {response.decision}"
                     logger.info(log_msg)
-                    yield {"type": "status", "content": log_msg}
+                    yield {"type": "status", "content": log_msg, "reasoning": response.reasoning}
+                    
+                    if response.decision == "clarify":
+                        yield {
+                            "type": "clarification",
+                            "status": "Needs more detail",
+                            "message": response.clarification_question,
+                            "route_hint": response.route 
+                        }
+                        return
 
-                    if path == "CHAT":
+                    yield {"type": "status", "content": f"Routing to {response.route} agent..."}
+    
+                    if response.route == "CHAT":
                         yield {"type": "status", "content": "Thinking of a reply... ✍️"}
                         
                         # Define a casual, helpful personality
@@ -1057,14 +1095,10 @@ class HybridAgent(Agent):
                             Do NOT output 'CHAT'. Talk naturally.
                         """
                         
-                        # Grab context from session state so the LLM remembers previous casual turns
-                        history = [SystemMessage(content=personality_prompt)]
-                        
-                        # last 2-3 messages for simulated "memory"
-                        if len(messages) > 0:
-                            history.extend(messages[-3:])
-
-                        history.append(HumanMessage(content=user_prompt))
+                        history = [
+                            SystemMessage(content=personality_prompt),
+                            HumanMessage(content=user_prompt)
+                        ]
                         
                         chat_resp =  self.client.invoke(history)
 
@@ -1073,21 +1107,19 @@ class HybridAgent(Agent):
                         yield {"type": "final", "content": chat_resp.content}
                         return
 
-                    elif path =="SQL":
-                        for step in self.sql_expert.process_query(user_prompt, intent):
-                            yield step
+                    elif response.route =="SQL":
+                        yield from self.sql_expert.process_query(user_prompt, intent)
                     else:
-                        for step in self.rag_expert.process_query(user_prompt, intent):
-                            yield step
+                        yield from self.rag_expert.process_query(user_prompt, intent)
                 else:
-                    for step in self.rule_based_routing(user_prompt, intent):
-                        yield step
+                    yield from self.rule_based_routing(user_prompt, intent)
 
             except Exception as e: 
                 error_trace = traceback.format_exc()
                 log_msg = f"⚠️ Routing failed. {str(e)}\n{error_trace}"
                 logger.error(log_msg)
                 yield {"type": "error", "content": log_msg}
+                return
 
 if __name__ == "__main__":
     agent = HybridAgent(vllm_url=f"http://vllm:{CFG.VLLM_PORT}/v1")

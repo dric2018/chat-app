@@ -14,14 +14,7 @@ from agent import QueryIntent, HybridAgent
 
 from utils import parse_llm_response
 
-from prometheus_client import start_http_server
-
 from time import time
-
-try:
-    start_http_server(port=8001, addr='http://streamlit-app')    
-except OSError:
-    pass 
 
 agent = HybridAgent(vllm_url=f"http://vllm:{CFG.VLLM_PORT}/v1")
 
@@ -95,10 +88,9 @@ def render_agent_response(response):
 
     # HANDLE DATA & VISUALS
     if response["type"] == "data":
-        if "final_sql" in response:
-            with st.expander("💻 Generated SQL Query"):
-                st.code(response["sanitized-query"], language="sql")
-        
+        with st.expander("💻 Generated SQL Query"):
+            st.code(response["final_sql"], language="sql")
+    
         if response.get("intent") == QueryIntent.CHART:
             df = response["data"]
             fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Election Insights")
@@ -125,7 +117,9 @@ def query_llm(input_text: str):
             for update in agent.get_answer(input_text, chat_history=current_history):
                 if update["type"] == "status":
                     status.write(f"⚙️ {update['content']}")
-                
+                    if "reasoning" in update:
+                        st.info(f"**Reasoning:** {update['reasoning']}")
+                            
                 elif update["type"] in ["text", "data", "final_sql", "final"]:                    
                     final_answer = update
                     duration = (time() - start) /60
@@ -139,7 +133,6 @@ def query_llm(input_text: str):
                 elif update["type"] == "error":
                     status.update(label="❌ Error", state="error")
                     st.error(update["content"])
-                    return
 
         if final_answer:
             render_agent_response(final_answer)
@@ -157,10 +150,42 @@ def query_llm(input_text: str):
                 )
             )
 
-st.title("📄 Chat App")
+def select_suggestion():
+    if st.session_state.suggestion_box:
+        st.session_state.chat_input_key = st.session_state.suggestion_box
 
-if "messages" not in st.session_state:
+st.title("📄 Chat App")
+st.markdown(
+    "I can answer questions about the 2025 Legislative elections in Côte d'Ivoire. " \
+    "You can ask general, ranking, aggregation questions etc.")
+
+# Example suggestions
+SUGGESTIONS = [
+    "What is the total votes by party ?", 
+    "Which region has the most voters?", # ✅
+    "What is the turnout in the region with the most voters?", # ✅  #same as previous query but kept for tests
+    "Which candidates won the elections in Abidjan?" , # ✅ 
+    "How many seats did ADCI win?",
+    "Who won the elections in tiapum",
+    "Top 10 candidates by score in region Nawa.", # ✅ 
+    "Participation rate by region",
+    "Histogram of winners by party.",
+    "distribution of winners per party",
+    "Which party did win the most seats?",
+    "Show me the distribution of voters per party and per region"
+]
+
+# Show only before the first message
+if "messages" not in st.session_state or not st.session_state.messages:
     st.session_state.messages = []
+
+selected_option = st.pills(
+    label="Examples:", 
+    options=SUGGESTIONS,
+    key="suggestion_box",
+    on_change=select_suggestion,
+    selection_mode="single"
+)
 
 # Display chat history
 for message in st.session_state.messages:
@@ -174,19 +199,11 @@ for message in st.session_state.messages:
         else:
             st.markdown(message.content)
 
-        # if role == "assistant":
-        #     try:
-        #         # Turn the string back into a dict for the renderer
-        #         data = json.loads(message.content)
-        #         render_agent_response(data)
-        #     except (json.JSONDecodeError, TypeError):
-        #         # Fallback for plain text messages
-        #         st.markdown(message.content)
-        # else:
-        #     st.markdown(message.content)
+chat_prompt = st.chat_input("Ask anything...", key="chat_input_key")
 
-if prompt := st.chat_input("Ask anything..."):
-    query_llm(input_text=prompt)
+
+if chat_prompt:
+    query_llm(input_text=chat_prompt)
 
 # if __name__=="__main__":
 #     sys_prompt = """Answer the user in a casual manner"""

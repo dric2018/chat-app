@@ -38,7 +38,7 @@ services:
       - monitoring_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
+      interval: 5s
       timeout: 30s
       retries: 50     
       start_period: 60s
@@ -100,6 +100,7 @@ services:
         # - DB_PATH=/app/data/elections.duckdb
     expose:
       - "8501" # making sure service is only accessible through Nginx
+      - "8001"
     ports:
       - 8001:8001     
     extra_hosts:
@@ -112,6 +113,7 @@ services:
     depends_on:
       vllm: 
         condition: service_healthy
+        required: false
       prometheus:
         condition: service_healthy
       grafana:
@@ -136,6 +138,7 @@ services:
     depends_on:
       vllm: 
         condition: service_healthy
+        required: false
       streamlit-app: 
         condition: service_healthy
     restart: unless-stopped

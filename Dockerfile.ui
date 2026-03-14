@@ -20,7 +20,8 @@ COPY ./src/chat_app.py src/chat_app.py
 COPY ./src/__init__.py src/__init__.py
 COPY ./src/config.py src/config.py
 
-RUN pip install . --no-cache-dir -vv
+RUN pip install . --no-cache-dir 
+#-vv
 
 # Expose Streamlit's default port
 EXPOSE 8501
