@@ -360,6 +360,7 @@ Evaluation Suite: 🏗️ Not yet implemented.
 To be added/Future work:
 - Persistent messages history
 - Refined Monitoring dashborad
+- Move prompts from within functions/methods to a centralized registory for the agents to consume them seamlessly
 
 # Credits and Acknowledgement
 - The project was implemented with partial assistance from LLMs (Qwen3-8b, Gemini-3-12b, Mistral-22b).

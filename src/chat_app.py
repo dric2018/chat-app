@@ -88,15 +88,17 @@ def render_agent_response(response):
 
     # HANDLE DATA & VISUALS
     if response["type"] == "data":
+        intent = response.get("intent")
+
         with st.expander("💻 Generated SQL Query"):
             st.code(response["final_sql"], language="sql")
     
-        if response.get("intent") == QueryIntent.CHART:
+        if intent.value == QueryIntent.CHART.value:
             df = response["data"]
             with st.expander("🖼️ Visualization"):
                 fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Election Insights")
                 st.plotly_chart(fig, use_container_width=True)
-            
+        
         with st.expander("📊 View Raw Data"):
             st.dataframe(response["data"])
 
@@ -123,6 +125,9 @@ def query_llm(input_text: str):
 
                     if "reasoning" in update:
                         st.info(f"**Reasoning:** {update['reasoning']}")
+                    
+                    if "possible_clarification" in update:
+                        st.warning(f"**Possible Clarification Question:** {update['possible_clarification']}")
                             
                 elif update["type"] in ["text", "data", "final_sql", "final"]:                    
                     final_answer = update
@@ -158,26 +163,32 @@ def select_suggestion():
     if st.session_state.suggestion_box:
         st.session_state.chat_input_key = st.session_state.suggestion_box
 
-st.title("📄 CIV Election Master")
+st.title("📄🇨🇮 CIV Election Master")
 st.markdown(
     "Hi! I can answer questions about the 2025 Legislative elections in Côte d'Ivoire. " \
     "You can ask general, ranking, aggregation questions etc.")
 
 # Example suggestions
+rag_examples = [
+    "What was the final voter turnout percentage in the 2025?",
+    "Summarize the election results for the Tiapoum constituency.",
+    "Which party saw the biggest increase in seat share compared to the last cycle?",
+    "How does the urban vs. rural turnout compare in the latest results?",
+]
 SUGGESTIONS = [
     "What is the total votes by party ?", 
     "Which region has the most voters?", # ✅
     "What is the turnout in the region with the most voters?", # ✅  #same as previous query but kept for tests
     "Which candidates won the elections in Abidjan?" , # ✅ 
-    "How many seats did ADCI win?",
+    "How many seats did ADCI win?", # ✅ 
     "Who won the elections in tiapum",
     "Top 10 candidates by score in region Nawa.", # ✅ 
     "Participation rate by region", # ✅ 
     "Distribution of winners per party", # ✅ 
-    "Which party did win the most seats?",
-    "Show me the distribution of voters per region",
+    "Which party did win the most seats?", # ✅ 
+    "Show me the distribution of voters per region", # ✅ 
     "histogram of the number of candidates per party and per region"
-]
+] + rag_examples
 
 # Show only before the first message
 if "messages" not in st.session_state or not st.session_state.messages:

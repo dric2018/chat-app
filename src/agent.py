@@ -649,6 +649,7 @@ class SQLAgent(Agent):
                     if tool_requests:
                         messages.append(response)
                         for tool_req in tool_requests:
+                            start_call = time.time()
                             # Handle both native dict and parsed dict structures
                             name = tool_req.get("name") or tool_req.get("function", {}).get("name")
                             args = tool_req.get("args") or tool_req.get("arguments") or tool_req
@@ -656,7 +657,6 @@ class SQLAgent(Agent):
 
                             selected_tool = {t.name: t for t in self.tools}[name]
                             
-                            start_call = time.time()
                             observation = selected_tool.invoke(args)
                             call_duration = time.time() - start_call
                             
@@ -1067,7 +1067,12 @@ class HybridAgent(Agent):
 
                     log_msg = f"✅ Route: {response.route}; Decision: {response.decision}"
                     logger.info(log_msg)
-                    yield {"type": "status", "content": log_msg, "reasoning": response.reasoning}
+                    yield {
+                        "type": "status", 
+                        "content": log_msg, 
+                        "reasoning": response.reasoning,
+                        "possible_clarification": response.clarification_question
+                        }
                     
                     if response.decision == "clarify":
                         yield {
