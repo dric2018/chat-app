@@ -175,9 +175,8 @@ class Agent(abc.ABC):
             yield {"type": "status", "content": f"✅ Intent: {intent.name}."}
             
             if intent == QueryIntent.INVALID:
-                yield {"type": "status", "content": "This query does not appear to be election-related."}
+                yield {"type": "status", "content": "This query does not appear to be election-related or safe."}
                 pass
-                # return {"type": "error", "content": "The query does not appear to be election-related."}
 
             for out in self.process_query(user_prompt, intent, chat_history):
                 yield out
@@ -185,11 +184,11 @@ class Agent(abc.ABC):
                                 
         except SecurityViolationError as e:
             self.metrics["violations"] += 1
-            VIOLATIONS_COUNTER.inc()
+            get_security_counter().inc()                
             logger.error(f"SECURITY SHIELD: {e}")
             yield {
                 "type": "error", 
-                "content": f"Security violation: Operation {str(e)} is strictly prohibited."
+                "content": f"Operation {str(e)} is strictly prohibited."
             }
             return 
 
@@ -416,7 +415,7 @@ class SQLAgent(Agent):
             if len(parsed) > 1:
                 metrics["violations"] += 1
                 get_security_counter().inc()                
-                out_message = "Security Violation: Multiple queries detected."
+                out_message = "Multiple queries detected."
                 return is_query_valid, out_message
             
             clean_sql = parsed[0]
@@ -426,14 +425,14 @@ class SQLAgent(Agent):
             if clean_sql.get_type() != "SELECT":
                 metrics["violations"] += 1
                 get_security_counter().inc()                
-                out_message = f"Security Violation: Forbidden command type '{clean_sql.get_type()}'."
+                out_message = f"Forbidden command type '{clean_sql.get_type()}'."
                 return is_query_valid, out_message
             
             # Ensuring only allowed tables are used
             if not any(t in clean_sql.value.lower() for t in CFG.ALLOWED_TABLES):
                 metrics["violations"] += 1
                 get_security_counter().inc()
-                out_message = f"Security Violation: Unauthorized table access detected.\nSQL: {clean_sql.value}"
+                out_message = f"Unauthorized table access detected.\nSQL: {clean_sql.value}"
                 return is_query_valid, out_message            
 
             # Deep Token Inspection (No hidden JOINs to sensitive tables)
@@ -442,7 +441,7 @@ class SQLAgent(Agent):
                 if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in forbidden:
                     metrics["violations"] += 1
                     get_security_counter().inc()
-                    out_message = f"Security Violation: Forbidden keyword '{token.value}' detected."
+                    out_message = f"Forbidden keyword '{token.value}' detected."
                     return is_query_valid, out_message
             
             if "LIMIT" not in clean_sql:
@@ -586,7 +585,6 @@ class SQLAgent(Agent):
         intent_instruction = intent_instructions.get(intent, "")
 
         self.generation_prompt = f"""
-        Today is {datetime.now().strftime("%Y—%m-%d")}\n
         You are a Data Scientist with deep expertise in elections data management, exploration, and an expert in SQL query construction and optimization. \n
         Your purpose is to transform natural language requests into precise, efficient SQL queries that deliver exactly what the user requests.\n
         User Intent: {intent.value}. {intent_instruction}\n
@@ -772,13 +770,14 @@ class SQLAgent(Agent):
                     })
                     
                     if not is_safe:
-                        logger.error(f"SQL Violation Attempted: {out_message}")
-                        # Increment the Prometheus counter
+                        log_msg = f"SQL Violation Attempted: {out_message}"
+                        logger.error(log_msg)
                         yield {
                             "type": "error", 
-                            "content": f"Security violation. {out_message}"
+                            "content": log_msg
                         }   
-                        return 
+
+                        raise SecurityViolationError
 
                     results = None  
                     for out in self.execute_read_query.invoke({
@@ -861,7 +860,10 @@ class RAGAgent(Agent):
             content = msg.content 
             history_str += f"{role}: {content}\n"
 
+        date = datetime.now().strftime("%Y—%m-%d")
+        year = date.split("-")[0]
         sys_prompt = f"""
+        Today is {date}. We are in the year {year}.\n
         You are an Election Specialist. \n
         Instructions:
         - Use the following conversation history to understand context:\n
@@ -908,8 +910,6 @@ class RAGAgent(Agent):
 
                     observation = selected_tool.invoke(args)
 
-                    logger.info(f"Executing out: {str(observation)}")
-
                     if 'search' in name:
                         clarification_prompt = f"""
                         The user asked: '{user_prompt}'. 
@@ -919,7 +919,6 @@ class RAGAgent(Agent):
                         """
                     else:
                         clarification_prompt = str(observation)
-
 
                     messages.append(
                         ToolMessage(content=clarification_prompt, tool_call_id=call_id)
@@ -1027,13 +1026,34 @@ class HybridAgent(Agent):
             Fact Lookup (General) -> RAG
             """
 
+            if intent.value == QueryIntent.INVALID.value:
+                is_safe, out_message = self.sql_expert.validate_sql.invoke({
+                    "reasoning": "validating user query",
+                    "sql": user_prompt,
+                    "metrics": self.metrics,
+                    "forbidden": self.forbidden
+                })
+                    
+                if not is_safe:
+                    logger.error(f"SQL Violation Attempted: {out_message}")
+                    yield {
+                        "type": "error", 
+                        "content": f"Security violation. {out_message}"
+                    }   
+
+                    raise SecurityViolationError
+
             try:
                 if use_llm_routing:
                     log_msg = "Identifying decision route using LLM routing..."
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
 
+                    date = datetime.now().strftime("%Y—%m-%d")
+                    year = date.split("-")[0]
+
                     routing_prompt = f"""
+                        Today is {date}. We are in the year {year}.\n
                         You are a routing and validation expert employed in the analysis process of the 2025 legislative elections in Côte d'Ivoire. 
                         Analyze the user query: "{user_prompt}"
                         Context Intent: {intent}
@@ -1071,14 +1091,14 @@ class HybridAgent(Agent):
                         "type": "status", 
                         "content": log_msg, 
                         "reasoning": response.reasoning,
-                        "possible_clarification": response.clarification_question
+                        "clarification_question": response.clarification_question
                         }
                     
                     if response.decision == "clarify":
                         yield {
-                            "type": "clarification",
+                            "type": "final",
                             "status": "Needs more detail",
-                            "message": response.clarification_question,
+                            "content": response.clarification_question,
                             "route_hint": response.route 
                         }
                         return

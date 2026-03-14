@@ -102,6 +102,9 @@ def render_agent_response(response):
         with st.expander("📊 View Raw Data"):
             st.dataframe(response["data"])
 
+    # if response["type"] == "error":
+    #     st.error(response["content"])
+
 def query_llm(input_text: str):
 
     current_history = st.session_state.get("messages", [])
@@ -120,19 +123,19 @@ def query_llm(input_text: str):
             for update in agent.get_answer(input_text, chat_history=current_history):
                 if update["type"] == "status":
                     new_label = f"{update['content']}"
-                    status.update(label=new_label, state="running")
+                    status.update(label=new_label, state="running", expanded=True)
                     status.write(f"⚙️ {new_label}")
 
                     if "reasoning" in update:
                         st.info(f"**Reasoning:** {update['reasoning']}")
                     
-                    if "possible_clarification" in update:
-                        st.warning(f"**Possible Clarification Question:** {update['possible_clarification']}")
-                            
+                    if "clarification_question" in update:
+                        st.warning(f"**Possible Clarification Question:** {update['clarification_question']}")
+                
                 elif update["type"] in ["text", "data", "final_sql", "final"]:                    
                     final_answer = update
-                    duration = (time() - start) /60
-
+                       
+                    duration = (time() - start) /60                        
                     status.update(
                         label=f"✅ Processing Complete (in {duration:.3f} min)", 
                         state="complete", 
@@ -140,8 +143,8 @@ def query_llm(input_text: str):
                     )
                     
                 elif update["type"] == "error":
-                    status.update(label="❌ Error", state="error")
-                    st.error(update["content"])
+                    status.update(label="❌ Processing error or blocked query", state="error")
+                    final_answer = update
 
         if final_answer:
             render_agent_response(final_answer)
@@ -170,7 +173,7 @@ st.markdown(
 
 # Example suggestions
 rag_examples = [
-    "What was the final voter turnout percentage in the 2025?",
+    "What was the final voter turnout percentage in the 2025 elections?",
     "Summarize the election results for the Tiapoum constituency.",
     "Which party saw the biggest increase in seat share compared to the last cycle?",
     "How does the urban vs. rural turnout compare in the latest results?",
