@@ -25,9 +25,8 @@ dependencies = [
     "pytest",
     "requests",
     "tabulate",
-    "jupyterlab",
-    "ipywidgets",
-    "sentence-transformers"
+    "sentence-transformers",
+    "rapidfuzz"
 ]
 
 [dependency-groups]

@@ -9,12 +9,13 @@ import string
 
 from prometheus_client import Counter, REGISTRY
 
+from rapidfuzz import process, utils
+
     
 def parse_llm_response(raw_response:str):
     """
     Regex to find the <think> block and the remaining text
     """
-    # Try to extract Thinking Tags first (for Qwen3/DeepSeek-R1)
     think_match = re.search(r'<think>(.*?)</think>(.*)', raw_response, re.DOTALL)
     
     if think_match:
@@ -91,6 +92,16 @@ def get_security_counter():
         )
     # If it exists, return the existing collector
     return REGISTRY._names_to_collectors[metric_name]
+
+
+# Your "Gold Standard" data from DuckDB
+VALID_REGIONS = ["Abidjan", "Yamoussoukro", "Bouaké"]
+
+def get_best_match(user_input, choices, threshold=80):
+    match, score, _ = process.extractOne(user_input, choices, processor=utils.default_process)
+    if score >= threshold:
+        return match
+    return None # Trigger clarification if score is too low
 
 if __name__=="__main__":
     check_stack_health()

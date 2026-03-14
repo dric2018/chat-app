@@ -15,8 +15,10 @@ from enum import Enum
 from db.election_db import ElectionDB
 
 from langchain_core.tools import tool, BaseTool
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage, AIMessage
 from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 import pandas as pd
 from pprint import pprint
@@ -49,7 +51,7 @@ class ToolReasoningSchema(BaseModel):
 
 class TableActionSchema(ToolReasoningSchema):
     table_name: str = Field(
-        description="The name of the table to inspect."
+        description="The exact name of the table to inspect. Mandatory."
     )
 
 class BaseAgentException(Exception):
@@ -82,24 +84,46 @@ class Agent(abc.ABC):
             vllm_url:str=CFG.VLLM_BASE_URL,
         ):
 
+        # Default agent tools
+        self.tools = self._collect_tools()
+        self.curr_messages = []
+
         self.model_name = CFG.BASE_MODEL
-        self.client     = ChatOpenAI(
-                            openai_api_base=vllm_url, 
-                            # base_url=f"http://localhost:{CFG.VLLM_PORT}/v1",
-                            api_key="EMPTY",
-                            max_completion_tokens=CFG.MAX_TOKENS,
-                            temperature=CFG.GENERATION_TEMPERATURE,
-                            model=CFG.BASE_MODEL,
-                            extra_body={
-                                "reasoning_effort": CFG.REASONING_EFFORT,
-                                "chat_template_kwargs": {"enable_thinking": False},
-                            },
-                            streaming=CFG.IS_STREAM,
-                            timeout=CFG.TIMEOUT,
-                            max_retries=3
-                        )
-        # self.client.openai_api_base = vllm_url
-        # logger.info(f"Agent::Setting {vllm_url=}")
+
+        date = datetime.now().strftime("%Y—%m-%d")
+        year = date.split("-")[0]
+
+        self.init_prompt = ChatPromptTemplate.from_messages([
+            ("system", f"""Today is {date}. We are in the year {year}.\n
+                You are an expert employed in the analysis process of the 2025 legislative elections in Côte d'Ivoire. 
+                We assume any reference to 'elections' refers to this 2025 legislative elections in Cote d'Ivoire. 
+                Use this assumption if user does not specify which elections they are interested in.  
+                All your knowledge about Côte d'Ivoire will be crucial here including demographics, the overall political situation in the recent years.
+                Do not guess if your are unsure about information related to that country.
+                """),
+            ("human", "Hello, how are you doing?"),
+            ("ai", "I'm doing well, thanks! How can I help you with the analysis of the 2025 legislative elections in Cote d'Ivoire ?"),
+            ("human", "{user_input}"),
+        ])
+
+        # chain
+        self.client = ChatOpenAI(
+            openai_api_base=vllm_url, 
+            # base_url=f"http://localhost:{CFG.VLLM_PORT}/v1",
+            api_key="EMPTY",
+            max_completion_tokens=CFG.MAX_TOKENS,
+            temperature=CFG.GENERATION_TEMPERATURE,
+            model=CFG.BASE_MODEL,
+            extra_body={
+                "reasoning_effort": CFG.REASONING_EFFORT,
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
+            streaming=CFG.IS_STREAM,
+            timeout=CFG.TIMEOUT,
+            max_retries=3
+        )
+        self.llm_with_tools = self.client.bind_tools(self.tools, tool_choice="auto")
+        self.chain     = self.init_prompt | self.llm_with_tools
                 
         self._forbidden = [
             "DROP", 
@@ -113,25 +137,10 @@ class Agent(abc.ABC):
         
         self.results_limit = CFG.SQL_MAX_LIMIT
 
-        # Schema Metadata for the LLM
-        self.schema_context = """
-            always use the available tools to preview the database before attempting anything
-            """
-
         self.metrics = {
             "violations": 0,
-            "total_latency": 0.0,
             "intents": {intent.value: 0 for intent in QueryIntent}
         }
-
-        self.investigation_logs = [] # Reset logs for this run
-        self.generation_prompt  = ""
-        # self.messages = [] # will have to be moved to db for safety
-
-        # Default agent tools
-        self.tools = self._collect_tools()
-
-        self.llm_with_tools = self.client.bind_tools(self.tools, tool_choice="auto")
 
     @property
     def forbidden(self) -> tuple:
@@ -168,7 +177,6 @@ class Agent(abc.ABC):
 
     def get_answer(self, user_prompt: str, chat_history: list = None):
         """The standard execution pipeline for ALL agents."""
-        start_time = time.time()
         try:
             yield {"type": "status", "content": "Identifying intent..."}
             intent = self._get_intent(user_prompt)
@@ -180,7 +188,6 @@ class Agent(abc.ABC):
 
             for out in self.process_query(user_prompt, intent, chat_history):
                 yield out
-            self.metrics["total_latency"] += (time.time() - start_time)
                                 
         except SecurityViolationError as e:
             self.metrics["violations"] += 1
@@ -223,7 +230,7 @@ class Agent(abc.ABC):
                 HumanMessage(content=user_prompt)
             ]
 
-            response = self.llm_with_tools.invoke(messages)
+            response = self.client.invoke(messages)
 
             # tool_requests = response.tool_calls
             # if not tool_requests and "<tool_call>" in response.content:
@@ -242,18 +249,22 @@ class Agent(abc.ABC):
         
         return intent
 
-
     def _interpret_results(
             self, 
             user_prompt: str,
             df:pd.DataFrame, 
             intent: QueryIntent
-        ) -> str:
+        ):
         """
         Summarizes data into a natural language response based on intent.
         """
+        log_msg = "Interpreting results..."
+        logger.info(log_msg)
 
-        logger.info("Interpreting results...")
+        # yield {
+        #     "type": "status",
+        #     "content": "Interpreting results..."
+        # }
 
         if df is None or df.empty:
             return "I found no data matching your request."
@@ -287,14 +298,22 @@ class Agent(abc.ABC):
 
         try:
             logger.info("Prompting LLM")
-            response = self.llm_with_tools.invoke(messages)
+            response = self.client.invoke(messages)
 
             tool_requests = response.tool_calls
             
             if not tool_requests and "<tool_call>" in response.content:
                 pass # we ignore tools here
             
+            # yield {
+            #     "type": "final",
+            #     "data": df,
+            #     "intent": intent,
+            #     "content": response.content.strip()
+            # }
+
             return response.content.strip()
+        
         except Exception as e:
             logger.error(f"Could not interpret results. {e}", exc_info=True)
 
@@ -342,7 +361,7 @@ class SQLAgent(Agent):
 
     @tool(args_schema=ToolReasoningSchema)
     def list_tables(reasoning: str) -> str:
-        """Get a list of all available tables in the election database."""
+        """Get a list of all available tables in the database."""
         logger.info(f"LLM Reasoning (list_tables): {reasoning}")
         
         with duckdb.connect(str(CFG.DB_PATH), read_only=True) as conn:
@@ -352,7 +371,11 @@ class SQLAgent(Agent):
     @tool(args_schema=TableActionSchema)
     @staticmethod
     def describe_table(table_name: str, reasoning: str) -> str:
-        """Get column names, types, and descriptions for a specific table."""
+        """
+            Use this to get column names, types, and descriptions for a specific table.
+            REQUIRED: You must provide both the 'table_name' and your 'reasoning' arguments.
+        
+        """
         logger.info(f"LLM Reasoning (describe_table [{table_name}]): {reasoning}")
         
         try:
@@ -631,7 +654,7 @@ class SQLAgent(Agent):
                 for it in range(CFG.MAX_ITERATIONS):
                     step_counter = f"{it+1}/{CFG.MAX_ITERATIONS}"
                     
-                    log_msg = f"\n[SQL generation step {step_counter}]"
+                    log_msg = f"\n[🚶🏼‍➡️ Walking down the SQL path...step {step_counter}]"
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
                     response = self.llm_with_tools.invoke(messages)
@@ -654,13 +677,13 @@ class SQLAgent(Agent):
                             call_id = tool_req.get("id", "manual")
 
                             selected_tool = {t.name: t for t in self.tools}[name]
+                            log_msg = f"Using Tool {name}. Args: {args}"
+                            logger.info(log_msg) 
                             
                             observation = selected_tool.invoke(args)
-                            call_duration = time.time() - start_call
                             
-                            log_msg = f"Using Tool {name}. Reasoning: {args["reasoning"]} [Completed in {call_duration:.5f}s]"
-                            logger.info(log_msg)  
-                            steps.append(log_msg)
+                            call_duration = time.time() - start_call 
+                            steps.append(log_msg+f" [Completed in {call_duration:.5f}s]")
                             
                             yield {"type": "status", "content": f"Used Tool {name}."}
                             
@@ -795,13 +818,15 @@ class SQLAgent(Agent):
                             Original query: {sql}
                             """
 
-                            results =  self.client.invoke([HumanMessage(content=fix_prompt)]).content                        
+                            results =  self.llm_with_tools.invoke([HumanMessage(content=fix_prompt)]).content                        
                             
                             return 
 
                     # if results.empty or results is None:
                     #     yield {"type": "error", "content": "No data found. Data retrieval query came back empty."}
                     #     return 
+
+
                     if results is not None and not results.empty:
                         yield {
                             "type": "data",
@@ -926,7 +951,7 @@ class RAGAgent(Agent):
                 
                 yield {"type": "status", "content": "Synthesizing final answer..."}               
                 
-                final_answer = self.llm_with_tools.invoke(messages)
+                final_answer = self.chain.invoke(messages)
                 yield {
                     "type": "text",
                     "intent": intent,
@@ -1015,7 +1040,8 @@ class HybridAgent(Agent):
             self, 
             user_prompt: str, 
             intent: QueryIntent,
-            use_llm_routing:bool=True
+            use_llm_routing:bool=True,
+            chat_history:list=None
         ):
             """
             The routing logic: Decides which specialized agent to call 
@@ -1049,14 +1075,18 @@ class HybridAgent(Agent):
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
 
-                    date = datetime.now().strftime("%Y—%m-%d")
-                    year = date.split("-")[0]
+                    history_context = ""
+                    if chat_history:
+                        # Assuming chat_history is a list of dicts: [{"role": "user", "content": "..."}, ...]
+                        history_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in chat_history[-5:]]) # Last 5 exchanges
 
                     routing_prompt = f"""
-                        Today is {date}. We are in the year {year}.\n
-                        You are a routing and validation expert employed in the analysis process of the 2025 legislative elections in Côte d'Ivoire. 
-                        We assume all election-related questions refer to this 2025 election.
-                        Analyze the user query: "{user_prompt}"
+                        {self.init_prompt}
+
+                        RECENT CONVERSATION HISTORY:
+                        {history_context}
+
+                        Analyze the new user query based on the conversation hustory: "{user_prompt}"
                         Context Intent: {intent}
 
                         Your goal is to choose the correct system (CHAT, SQL, or RAG) AND decide if you have enough information to proceed.
@@ -1119,12 +1149,16 @@ class HybridAgent(Agent):
                             Do NOT output 'CHAT'. Talk naturally.
                         """
                         
-                        history = [
-                            SystemMessage(content=personality_prompt),
-                            HumanMessage(content=user_prompt)
-                        ]
+                        langchain_history = [SystemMessage(content=personality_prompt)]
+                        for m in chat_history:
+                            if m["role"] == "user":
+                                langchain_history.append(HumanMessage(content=m["content"]))
+                            else:
+                                langchain_history.append(AIMessage(content=m["content"]))
+
+                        langchain_history.append(HumanMessage(content=user_prompt))
                         
-                        chat_resp =  self.client.invoke(history)
+                        chat_resp =  self.chain.invoke(langchain_history)
 
                         logger.info(f"CHAT response: {chat_resp.content}")
                         
@@ -1137,6 +1171,7 @@ class HybridAgent(Agent):
                         yield from self.rag_expert.process_query(user_prompt, intent)
                 else:
                     yield from self.rule_based_routing(user_prompt, intent)
+                    return
 
             except Exception as e: 
                 error_trace = traceback.format_exc()
