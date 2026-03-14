@@ -147,7 +147,8 @@ def query_llm(input_text: str):
                     final_answer = update
 
         if final_answer:
-            render_agent_response(final_answer)
+            with st.spinner(text="Preparing final answer to render..."):
+                render_agent_response(final_answer)
 
             # json_content = json.dumps(final_answer)
 

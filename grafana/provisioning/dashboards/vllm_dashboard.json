@@ -60,8 +60,8 @@
       "title": "Blocked Security Violations",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 4, "x": 18, "y": 0 },
-      "targets": [{ "expr": "sum by (env) (rag_sql_security_violations_total)" }],
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "round(sum(increase(rag_sql_security_violations_total[$__range])))" }],
       "fieldConfig": {
         "defaults": {
           "thresholds": {

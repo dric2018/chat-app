@@ -1055,6 +1055,7 @@ class HybridAgent(Agent):
                     routing_prompt = f"""
                         Today is {date}. We are in the year {year}.\n
                         You are a routing and validation expert employed in the analysis process of the 2025 legislative elections in Côte d'Ivoire. 
+                        We assume all election-related questions refer to this 2025 election.
                         Analyze the user query: "{user_prompt}"
                         Context Intent: {intent}
 
