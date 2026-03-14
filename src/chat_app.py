@@ -95,7 +95,7 @@ def render_agent_response(response):
     
         if intent.value == QueryIntent.CHART.value:
             df = response["data"]
-            with st.expander("🖼️ Visualization "):
+            with st.expander("🖼️ Visualization"):
                 fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Election Insights")
                 st.plotly_chart(fig, use_container_width=True)
         
