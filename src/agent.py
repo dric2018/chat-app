@@ -633,7 +633,7 @@ class SQLAgent(Agent):
                 for it in range(CFG.MAX_ITERATIONS):
                     step_counter = f"{it+1}/{CFG.MAX_ITERATIONS}"
                     
-                    log_msg = f"\n[{step_counter}]"
+                    log_msg = f"\n[SQL generation step {step_counter}]"
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
                     response = self.llm_with_tools.invoke(messages)

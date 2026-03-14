@@ -93,8 +93,9 @@ def render_agent_response(response):
     
         if response.get("intent") == QueryIntent.CHART:
             df = response["data"]
-            fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Election Insights")
-            st.plotly_chart(fig, use_container_width=True)
+            with st.expander("🖼️ Visualization"):
+                fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Election Insights")
+                st.plotly_chart(fig, use_container_width=True)
             
         with st.expander("📊 View Raw Data"):
             st.dataframe(response["data"])
@@ -116,7 +117,10 @@ def query_llm(input_text: str):
             start = time()
             for update in agent.get_answer(input_text, chat_history=current_history):
                 if update["type"] == "status":
-                    status.write(f"⚙️ {update['content']}")
+                    new_label = f"{update['content']}"
+                    status.update(label=new_label, state="running")
+                    status.write(f"⚙️ {new_label}")
+
                     if "reasoning" in update:
                         st.info(f"**Reasoning:** {update['reasoning']}")
                             
@@ -154,9 +158,9 @@ def select_suggestion():
     if st.session_state.suggestion_box:
         st.session_state.chat_input_key = st.session_state.suggestion_box
 
-st.title("📄 Chat App")
+st.title("📄 CIV Election Master")
 st.markdown(
-    "I can answer questions about the 2025 Legislative elections in Côte d'Ivoire. " \
+    "Hi! I can answer questions about the 2025 Legislative elections in Côte d'Ivoire. " \
     "You can ask general, ranking, aggregation questions etc.")
 
 # Example suggestions
@@ -169,7 +173,7 @@ SUGGESTIONS = [
     "Who won the elections in tiapum",
     "Top 10 candidates by score in region Nawa.", # ✅ 
     "Participation rate by region", # ✅ 
-    "Distribution of winners per party",
+    "Distribution of winners per party", # ✅ 
     "Which party did win the most seats?",
     "Show me the distribution of voters per region",
     "histogram of the number of candidates per party and per region"
@@ -188,16 +192,31 @@ selected_option = st.pills(
 )
 
 # Display chat history
-for message in st.session_state.messages:
-    role = "user" if message.type == "human" else "assistant"
+# for message in st.session_state.messages:
+#     role = "user" if message.type == "human" else "assistant"
     
-    with st.chat_message(role):
-        if role == "assistant":
-            full_data = message.additional_kwargs.get("full_response")
-            if full_data:
-                render_agent_response(full_data)            
-        else:
+#     with st.chat_message(role):
+#         if role == "assistant":
+#             full_data = message.additional_kwargs.get("full_response")
+#             if full_data:
+#                 render_agent_response(full_data)            
+#         else:
+#             st.markdown(message.content)
+
+for message in st.session_state.messages:
+    if isinstance(message, HumanMessage):
+        with st.chat_message("user"):
             st.markdown(message.content)
+    
+    elif isinstance(message, AIMessage):
+        with st.chat_message("assistant"):
+            # Pull the full dictionary back out of the metadata
+            full_response = message.additional_kwargs.get("full_response")
+            if full_response:
+                render_agent_response(full_response)
+            else:
+                st.markdown(message.content)
+
 
 chat_prompt = st.chat_input("Ask anything...", key="chat_input_key")
 

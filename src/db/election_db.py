@@ -125,7 +125,8 @@ class ElectionDB:
                     nextval('seq_results_id') AS RESULT_ID,
                     c.CANDIDATE_ID,           
                     circ.CONSTITUENCY_ID,    
-                    par.PARTY_ID,        
+                    par.PARTY_ID,   
+                    par.PARTY_NAME,   
                     p.*               
                 FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/results.parquet') p
                 JOIN candidate c ON p.CANDIDATE_NAME = c.CANDIDATE_NAME
@@ -386,6 +387,7 @@ class ElectionDB:
                     """, insert_data)
                 except Exception as e:
                     logger.error(f"{e}")
+                    print(f"Batch #{i}")
 
             logger.info(f"✅ RAG table synced with {len(data)} vectors.")
 
