@@ -168,11 +168,11 @@ SUGGESTIONS = [
     "How many seats did ADCI win?",
     "Who won the elections in tiapum",
     "Top 10 candidates by score in region Nawa.", # ✅ 
-    "Participation rate by region",
-    "Histogram of winners by party.",
-    "distribution of winners per party",
+    "Participation rate by region", # ✅ 
+    "Distribution of winners per party",
     "Which party did win the most seats?",
-    "Show me the distribution of voters per party and per region"
+    "Show me the distribution of voters per region",
+    "histogram of the number of candidates per party and per region"
 ]
 
 # Show only before the first message

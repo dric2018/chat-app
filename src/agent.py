@@ -573,7 +573,7 @@ class SQLAgent(Agent):
         ):
         """Restricted SQL Generation"""
 
-        log_msg = f"Attempting SQL generation...(Max iterations={CFG.MAX_ITERATIONS})"
+        log_msg = f"Attempting SQL generation [Max iterations={CFG.MAX_ITERATIONS}]"
         logger.info(log_msg)
         yield {"type": "status", "content": log_msg}
 
@@ -633,7 +633,7 @@ class SQLAgent(Agent):
                 for it in range(CFG.MAX_ITERATIONS):
                     step_counter = f"{it+1}/{CFG.MAX_ITERATIONS}"
                     
-                    log_msg = f"\nStarting iteration [{step_counter}]"
+                    log_msg = f"\n[{step_counter}]"
                     logger.info(log_msg)
                     yield {"type": "status", "content": log_msg}
                     response = self.llm_with_tools.invoke(messages)
@@ -664,7 +664,7 @@ class SQLAgent(Agent):
                             logger.info(log_msg)  
                             steps.append(log_msg)
                             
-                            yield {"type": "status", "content": f"Using Tool {name}. Reasoning: {args["reasoning"]}"}
+                            yield {"type": "status", "content": f"Used Tool {name}."}
                             
                             # logger.info(f"Tool output: {str(observation)}")
 
@@ -787,7 +787,6 @@ class SQLAgent(Agent):
                         }):
 
                         if out.get("type") == "status":
-                            yield out                         
                             results = out["content"]
                         
                         if out.get("type") == "error":
@@ -799,7 +798,6 @@ class SQLAgent(Agent):
 
                             results =  self.client.invoke([HumanMessage(content=fix_prompt)]).content                        
                             
-                            yield out
                             return 
 
                     # if results.empty or results is None:
