@@ -32,7 +32,7 @@ import time
 from typing import Tuple, Literal, Optional
 import traceback
 
-from utils import get_security_counter
+from utils import get_security_counter, get_entity_context
 
 db_client = ElectionDB()
 
@@ -848,7 +848,6 @@ class RAGAgent(Agent):
             ):
         super().__init__(vllm_url)
         self.client.openai_api_base = vllm_url
-        # logger.info(f"RAGAgent::Setting {vllm_url=}")
         
         self.tools = self._collect_tools()
         self.llm_with_tools = self.client.bind_tools(self.tools, tool_choice="auto")
@@ -938,12 +937,12 @@ class RAGAgent(Agent):
                     if 'search' in name:
                         clarification_prompt = f"""
                         The user asked: '{user_prompt}'. 
-                        We found these matching entities: {str(observation)}.
+                        We found these matching entities: {observation.content}.
                         If there are multiple matches, ask the user to specify which one they meant.
                         Format your response as a polite question with the options as bullet points.
                         """
                     else:
-                        clarification_prompt = str(observation)
+                        clarification_prompt = observation.content
 
                     messages.append(
                         ToolMessage(content=clarification_prompt, tool_call_id=call_id)
@@ -956,7 +955,6 @@ class RAGAgent(Agent):
                     "type": "text",
                     "intent": intent,
                     "content": final_answer.content,
-                    # "options": search_results
                 }
             else:
                 logger.info(f"No tool call identified")      
@@ -1068,6 +1066,18 @@ class HybridAgent(Agent):
                     }   
 
                     raise SecurityViolationError
+            
+            chat_history = get_entity_context(
+                user_prompt, 
+                chat_history
+            )
+
+            corrections = chat_history[-1]
+
+            yield {
+                "type": "status",
+                "content": corrections
+            }
 
             try:
                 if use_llm_routing:
@@ -1077,8 +1087,9 @@ class HybridAgent(Agent):
 
                     history_context = ""
                     if chat_history:
-                        # Assuming chat_history is a list of dicts: [{"role": "user", "content": "..."}, ...]
-                        history_context = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in chat_history[-5:]]) # Last 5 exchanges
+                        for m in chat_history[-5:]:
+                            role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
+                            history_context += f"{role}: {m.content}\n"                        
 
                     routing_prompt = f"""
                         {self.init_prompt}

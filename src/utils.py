@@ -1,17 +1,20 @@
 from __init__ import logger
 from config import CFG
 
+import duckdb
+
 import requests
 
 from unidecode import unidecode
 import re
-import string
 
 from prometheus_client import Counter, REGISTRY
 
-from rapidfuzz import process, utils
-
+import nltk
+from nltk.tokenize import word_tokenize
     
+from langchain_core.messages import HumanMessage, AIMessage
+
 def parse_llm_response(raw_response:str):
     """
     Regex to find the <think> block and the remaining text
@@ -81,7 +84,6 @@ def normalize_text(
     
     return unidecode(text)
 
-
 def get_security_counter():
     metric_name = 'rag_sql_security_violations_total'
     # Check if this metric is already in the global registry
@@ -94,14 +96,56 @@ def get_security_counter():
     return REGISTRY._names_to_collectors[metric_name]
 
 
-# Your "Gold Standard" data from DuckDB
-VALID_REGIONS = ["Abidjan", "Yamoussoukro", "Bouaké"]
+def get_potential_entities(query):
+    tokens = word_tokenize(query)
+    # Tagging
+    tagged = nltk.pos_tag(tokens)
+    # We eep only nouns/proper nouns
+    return [word for word, pos in tagged if pos in ('NNP', 'NN')]
 
-def get_best_match(user_input, choices, threshold=80):
-    match, score, _ = process.extractOne(user_input, choices, processor=utils.default_process)
-    if score >= threshold:
-        return match
-    return None # Trigger clarification if score is too low
+def get_corrected_context(user_query, threshold:float=0.85):
+    potential_entities = get_potential_entities(user_query)
+
+    # print(f"{potential_entities=}")
+    corrections = []
+    
+    # Check each piece against DuckDB Alias Table
+    for word in potential_entities:
+        with duckdb.connect(str(CFG.DB_PATH), read_only=True) as conn:
+            match = conn.execute(f"""
+                SELECT FORMAL_CONSTITUENCY_TITLE 
+                FROM entity_alias 
+                WHERE jaro_winkler_similarity(search_term, UPPER(?)) > {threshold}
+                ORDER BY jaro_winkler_similarity(search_term, UPPER(?)) DESC
+                LIMIT 1
+            """, [word, word]).fetchone()
+        
+            if match:
+                corrections.append({"original": word, "corrected": match[0]})
+
+    return corrections
+
+
+def get_entity_context(user_input:str, chat_history:list=[]):
+    # Check for typos
+    corrections = get_corrected_context(user_input)
+    
+    # Update Chat History with a "Correction Message"
+    if corrections:
+        correction_text = "Entity " + ", ".join(
+            [f"'{c['original']}' matches '{c['corrected']}'" for c in corrections]
+        )
+        
+        # Add to history as an AIMessage so the LLM sees it as a confirmed fact
+        chat_history.append(AIMessage(content=f"It seems some entities in the user query match names I am aware of. {correction_text}"))
+
+    # STEP C: Proceed to SQL/RAG Execution
+    # The LLM now sees: 
+    # User: "Who won in Tiapm?"
+    # AI: "I've identified the entity: 'Tiapm' matches 'Tiapoum, Commune et ville'"
+    # The SQL generator will now use the correct formal title.
+    
+    return chat_history
 
 if __name__=="__main__":
     check_stack_health()

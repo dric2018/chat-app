@@ -4,7 +4,7 @@ SELECT
     c.CANDIDATE_NAME,
     circ.CONSTITUENCY_NUM,
     p.PARTY_NAME,
-    res.SCORES,
+    res.NUM_VOTES,
     res.PCT_SCORE
 FROM result res
 JOIN candidate c ON res.CANDIDATE_ID = c.CANDIDATE_ID
@@ -18,7 +18,7 @@ CREATE OR REPLACE VIEW vw_party AS
 SELECT 
     p.PARTY_NAME,
     r.REGION_NAME,
-    SUM(res.SCORES) AS TOTAL_VOTES,
+    SUM(res.NUM_VOTES) AS TOTAL_VOTES,
     -- Ensure this counts across the whole group
     COUNT(CASE WHEN res.IS_WINNER = TRUE THEN 1 END) AS SEATS_WON
 FROM result res
@@ -54,7 +54,7 @@ SELECT
     c.CONSTITUENCY_TITLE,
     cand.CANDIDATE_NAME,
     p.PARTY_NAME,
-    res.SCORES,
+    res.NUM_VOTES,
     res.PCT_SCORE,
     res.IS_WINNER,
 FROM result res
@@ -76,7 +76,7 @@ WITH winner_info AS (
 SELECT 
     'In constituency ' || r.CONSTITUENCY_NUM || ' (' || r.CONSTITUENCY_TITLE || '), ' ||
     ANY_VALUE(w.WINNER_NAME) || ' won the election. Full results: ' ||
-    STRING_AGG(r.CANDIDATE_NAME || ' received ' || r.SCORES || ' votes', '; ' ORDER BY r.SCORES DESC) 
+    STRING_AGG(r.CANDIDATE_NAME || ' received ' || r.NUM_VOTES || ' votes', '; ' ORDER BY r.NUM_VOTES DESC) 
     AS TEXT_CHUNK,
     'constituency_summary' AS ENTITY_TYPE,
     r.CONSTITUENCY_NUM AS ENTITY_ID
@@ -89,8 +89,8 @@ UNION ALL
 --- Individual Candidate Results
 SELECT 
     'Candidate (or candidate group) ' || CANDIDATE_NAME || ' representing ' || PARTY_NAME || 
-    ' ran in ' || CONSTITUENCY_TITLE || '. They received ' || SCORES || 
-    ' votes, finishing in rank ' || DENSE_RANK() OVER (PARTITION BY CONSTITUENCY_NUM ORDER BY SCORES DESC) || 
+    ' ran in ' || CONSTITUENCY_TITLE || '. They received ' || NUM_VOTES || 
+    ' votes, finishing in rank ' || DENSE_RANK() OVER (PARTITION BY CONSTITUENCY_NUM ORDER BY NUM_VOTES DESC) || 
     '. Outcome: ' || (CASE WHEN is_winner THEN 'ELECTED' ELSE 'NOT ELECTED' END) || '.' AS TEXT_CHUNK,
     'candidate_result' AS ENTITY_TYPE,
     RESULT_ID AS ENTITY_ID

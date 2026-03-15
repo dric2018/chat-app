@@ -165,7 +165,7 @@ The streamlit app may require a username and a password. Use those that you spec
 ### Step 2: Implementing the Text-to-SQL Agent 
 
 #### Database considerations
-For a stable, high-performance RAG workflow involving electoral data, the proposed schema should be split into structural tables (for precise SQL filtering) and vector tables (for semantic search).
+For a stable, high-performance workflow involving electoral data, the proposed schema should be split into structural tables (for precise SQL filtering) and vector tables (for semantic search).
 
 Since our data involves multi-line cells and merged cells, using a normalized relational structure is the most reliable way to prevent the "semantic drift" that happens in raw text RAG.
 
@@ -266,7 +266,7 @@ Hybrid Routing: ✅.
 
 > A CHAT route was added in case the user asks general questions that may not be directly related to the elections. 
 
-> DuckDB has native support for string similarity functions like `levenshtein`, `hamming`, and `jaro_winkler_similarity`. Thus we mainy rely on this for that matter.
+> DuckDB has native support for string similarity functions like `levenshtein`, `hamming`, and `jaro_winkler_similarity`. Thus we mainly rely on these for spellcheking. A special `entity_alias` table was created to allow for initial correction of the user prompt when necessary, matching names that are similar to known `constituency` names.
 
 Citations: 🏗️ Not yet implemented. However, we extracted the page_id (source page number) during the ingestion process. 
 

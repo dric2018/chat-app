@@ -2,13 +2,13 @@ from __init__ import logger
 from config import CFG
 import duckdb
 
-import pdfplumber
+import nltk
+
 import pandas as pd
 
 import re
 
 from sentence_transformers import SentenceTransformer
-import sys
 
 from tqdm import tqdm
 import traceback
@@ -73,7 +73,7 @@ class ElectionDB:
                     p.* 
                 FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/regions.parquet') p;
             """)    
-            logger.info("Successfully created and populated table region")
+            logger.info("✅ Successfully created and populated table region")
 
 
             conn.execute(f"""
@@ -88,7 +88,7 @@ class ElectionDB:
                 FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/candidates.parquet') p
                 JOIN party par ON p.PARTY_NAME = par.PARTY_NAME;
             """)
-            logger.info("Successfully created and populated table candidate")
+            logger.info("✅ Successfully created and populated table candidate")
 
             conn.execute(f"""
                 DROP SEQUENCE IF EXISTS seq_parties_id;                         
@@ -100,7 +100,7 @@ class ElectionDB:
                     p.*  
                 FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/parties.parquet') p
             """)
-            logger.info("Successfully created and populated table party")
+            logger.info("✅ Successfully created and populated table party")
 
             conn.execute(f"""
                 DROP SEQUENCE IF EXISTS seq_constituencies_id;
@@ -114,7 +114,7 @@ class ElectionDB:
                 FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/constituencies.parquet') p
                 JOIN region r on p.REGION = r.REGION_NAME;
             """)
-            logger.info("Successfully created and populated table constituency")
+            logger.info("✅ Successfully created and populated table constituency")
 
             conn.execute(f"""
                 DROP SEQUENCE IF EXISTS seq_results_id;                         
@@ -133,7 +133,7 @@ class ElectionDB:
                 JOIN party par ON p.PARTY_NAME = par.PARTY_NAME
                 JOIN constituency circ ON p.CONSTITUENCY_NUM = circ.CONSTITUENCY_NUM;
             """)
-            logger.info("Successfully created and populated table result")
+            logger.info("✅ Successfully created and populated table result")
 
             # conn.execute("""
             #     ALTER TABLE result ADD COLUMN IF NOT EXISTS is_winner BOOLEAN;
@@ -151,7 +151,7 @@ class ElectionDB:
                 FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/turnout.parquet') p
                 JOIN constituency circ ON p.CONSTITUENCY_NUM = circ.CONSTITUENCY_NUM;
             """)
-            logger.info("Successfully created and populated table turnout")
+            logger.info("✅ Successfully created and populated table turnout")
 
             conn.execute(f"""
                 DROP SEQUENCE IF EXISTS seq_chunk_id;
@@ -169,18 +169,33 @@ class ElectionDB:
             
             INSTALL fts;             
             """)
-            logger.info("Successfully created table embeddings")
+            logger.info("✅ Successfully created table embeddings")
             # self.initialize_fts()
 
-            # conn.execute("""
-            #     CREATE OR REPLACE TABLE entity_alias (
-            #         ALIAS TEXT,
-            #         NORMALIAZED_ALIAS TEXT,
-            #         ENTITY_TYPE TEXT,
-            #         ENTITY_ID INTEGER
-            #     );
-            #     """)
-            # logger.info("Successfully created and populated table entity_alias.")
+            # Alias table only for constituency
+            conn.execute(f"""
+                INSTALL rapidfuzz FROM community;
+                LOAD rapidfuzz;
+                         
+                DROP SEQUENCE IF EXISTS seq_alias_id;                         
+                CREATE SEQUENCE seq_alias_id START 1;
+                                                  
+                CREATE OR REPLACE TABLE entity_alias AS
+                SELECT
+                    nextval('seq_alias_id') AS ALIAS_ID,
+                    circ.CONSTITUENCY_ID,
+                    p.*  
+                FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/entity_alias.parquet') p
+                JOIN constituency circ ON p.CONSTITUENCY_NUM = circ.CONSTITUENCY_NUM;
+                """)
+            
+            # install nltk utils
+            nltk.download('punkt')
+            nltk.download('punkt_tab')
+            nltk.download('averaged_perceptron_tagger')
+            nltk.download('averaged_perceptron_tagger_eng')
+
+            logger.info("✅ Successfully created and populated table entity_alias.")
 
             logger.info("\nDeploying views...")
             self.deploy_views(conn, "src/db/views.sql")

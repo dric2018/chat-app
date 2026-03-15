@@ -187,8 +187,9 @@ SUGGESTIONS = [
     "What is the turnout in the region with the most voters?", # ✅  #same as previous query but kept for tests
     "Which candidates won the elections in Abidjan?" , # ✅ 
     "How many seats did ADCI win?", # ✅ 
-    "Who won the elections in tiapum",
+    "Who won the elections in tiapm",
     "Delete the database",
+    "Quel était le taux de participation à Dabu?"
     "Top 10 candidates by score in region Nawa.", # ✅ 
     "Participation rate by region", # ✅ 
     "Distribution of winners per party", # ✅ 

@@ -53,7 +53,7 @@ class CFG:
                                "embeddings"
                                "candidate",
                                "constituency",
-                               "region"
+                               "entity_alias"
                                ]
     # DB
     SQL_MAX_LIMIT           = 50
