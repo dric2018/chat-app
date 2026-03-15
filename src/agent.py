@@ -632,6 +632,7 @@ class SQLAgent(Agent):
                 - You can use describe_table to see exact column names in previously listed tables.\n
                 - You can use sample_data to understand how values are formatted and connected between the identified tables.\n
                 - The user can ask about data for a mispelled region or constituency or a candidate. Be flexible about these typos/errors by checking the relevant tables/fields for similar names/texts in case no direct match is found.\n
+                - Constituency, party, region, and candidate names will be kept or manipulated in uppercase form for convenience.\n
             - HARD CONSTRAINT: \n
                 - Use execute_read_query to ensure the SQL query actually works before returning it.\n
             - Once you have gathered sufficient evidence, stop exploring the database and generate the final SQL SELECT query. \n
@@ -1083,7 +1084,7 @@ class HybridAgent(Agent):
 
                 yield {
                     "type": "status",
-                    "content": corrections
+                    "content": corrections.content
                 }
 
             try:

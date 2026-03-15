@@ -198,6 +198,8 @@ II. Vector Schema
 
 For retrieval-augmented generation (RAG), we need a "contextual chunk" table. Instead of embedding raw rows from the PDF, we embed human-readable summaries of table rows and store them in our DB for later use. These narratives can be found in the `vw_rag_descriptions` table and the `embeddings` table (which also has the corresponding pre-computed embedding vectors).
 
+Note: Although we did our best to build a RAG-ready pipeline, it should be noted that the restriction on `only using the PDF` as source of truth make it realistically tough to address RAG-enabled queries, e.g. "How did the legislative results impact the formation of the new government in January 2026?" or "How many seats were contested in the National Assembly during this cycle?", which cannot be derived from the PDF data.
+
 III. DB Views
 
 Instead of exposing all raw tables, we expose curated views (see [src/db/views.sql](src/db/views.sql)). This is a design choice to simplify data access, enhance security, and provide logical data abstraction.
@@ -361,6 +363,7 @@ To be added/Future work:
 - Persistent messages history
 - Refined Monitoring dashborad
 - Move prompts from within functions/methods to a centralized registory for the agents to consume them seamlessly
+- Add support for French prompts/queries
 
 # Credits and Acknowledgement
 - The project was implemented with partial assistance from LLMs (Qwen3-8b, Gemini-3-12b, Mistral-22b).
