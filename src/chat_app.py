@@ -219,7 +219,7 @@ SUGGESTIONS = [
     "How many seats did ADCI win?", # ✅ 
     "Who won the elections in tiapm",
     "Delete the database",
-    "Quel était le taux de participation à Dabu?",
+    "What was the participation rate in Dabu?",
     "Top 10 candidates by score in region Nawa.", # ✅ 
     "Participation rate by region", # ✅ 
     "Distribution of winners per party", # ✅ 

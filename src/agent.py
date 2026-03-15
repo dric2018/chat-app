@@ -1137,12 +1137,15 @@ class HybridAgent(Agent):
 
                     log_msg = f"✅ Route: {response.route}; Decision: {response.decision}"
                     logger.info(log_msg)
+                    
                     yield {
                         "type": "status", 
                         "content": log_msg, 
                         "reasoning": response.reasoning,
                         "clarification_question": response.clarification_question
                         }
+
+                    chat_history.append(AIMessage(content=response.reasoning))
                     
                     if response.decision == "clarify":
                         yield {
@@ -1167,17 +1170,13 @@ class HybridAgent(Agent):
                             DO NOT provide election data or facts unless specifically asked.\n
                             Do NOT output 'CHAT'. Talk naturally.
                         """
-                        
-                        langchain_history = [SystemMessage(content=personality_prompt)]
-                        for m in chat_history:
-                            if m["role"] == "user":
-                                langchain_history.append(HumanMessage(content=m["content"]))
-                            else:
-                                langchain_history.append(AIMessage(content=m["content"]))
 
-                        langchain_history.append(HumanMessage(content=user_prompt))
+                        chat_history.append([
+                            SystemMessage(content=personality_prompt),
+                            HumanMessage(content=user_prompt)
+                        ])
                         
-                        chat_resp =  self.chain.invoke(langchain_history)
+                        chat_resp =  self.chain.invoke(chat_history[-5])
 
                         logger.info(f"CHAT response: {chat_resp.content}")
                         
@@ -1185,9 +1184,17 @@ class HybridAgent(Agent):
                         return
 
                     elif response.route =="SQL":
-                        yield from self.sql_expert.process_query(user_prompt, intent)
+                        yield from self.sql_expert.process_query(
+                            user_prompt=user_prompt, 
+                            intent=intent, 
+                            chat_history=chat_history
+                        )
                     else:
-                        yield from self.rag_expert.process_query(user_prompt, intent)
+                        yield from self.rag_expert.process_query(
+                            user_prompt=user_prompt, 
+                            intent=intent, 
+                            chat_history=chat_history
+                        )
                 else:
                     yield from self.rule_based_routing(user_prompt, intent)
                     return
