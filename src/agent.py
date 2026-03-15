@@ -186,7 +186,11 @@ class Agent(abc.ABC):
                 yield {"type": "status", "content": "This query does not appear to be election-related or safe."}
                 pass
 
-            for out in self.process_query(user_prompt, intent, chat_history):
+            for out in self.process_query(
+                user_prompt=user_prompt, 
+                intent=intent, 
+                chat_history=chat_history
+                ):
                 yield out
                                 
         except SecurityViolationError as e:
@@ -201,7 +205,9 @@ class Agent(abc.ABC):
 
         except (DatabaseConnectionError, Exception) as e:
             logger.critical(f"SYSTEM ERROR: {e}", exc_info=True)
+            yield {"type": "error", "content": f"Could not connect to DB. {e}"}
             return 
+        
         except Exception as e:
             logger.error(f"Could not get agent's answer. {e}", exc_info=True)
             yield {"type": "error", "content": f"Could not get agent's answer. {e}"}
@@ -1038,8 +1044,8 @@ class HybridAgent(Agent):
             self, 
             user_prompt: str, 
             intent: QueryIntent,
+            chat_history:list=None,
             use_llm_routing:bool=True,
-            chat_history:list=None
         ):
             """
             The routing logic: Decides which specialized agent to call 
@@ -1067,17 +1073,18 @@ class HybridAgent(Agent):
 
                     raise SecurityViolationError
             
-            chat_history = get_entity_context(
+            chat_history, corrections_applied = get_entity_context(
                 user_prompt, 
                 chat_history
             )
 
-            corrections = chat_history[-1]
+            if corrections_applied:
+                corrections = chat_history[-1]
 
-            yield {
-                "type": "status",
-                "content": corrections
-            }
+                yield {
+                    "type": "status",
+                    "content": corrections
+                }
 
             try:
                 if use_llm_routing:

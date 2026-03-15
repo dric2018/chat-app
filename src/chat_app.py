@@ -3,6 +3,7 @@ from config import CFG
 
 from langchain_core.messages import HumanMessage, AIMessage
 
+import pandas as pd
 import plotly.express as px
 
 import re
@@ -99,9 +100,28 @@ def render_agent_response(response):
         if intent.value == QueryIntent.CHART.value:
             df = response["data"]
             with st.expander("🖼️ Visualization"):
+                # Heuristic Chart Selection
                 fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Election Insights")
                 st.plotly_chart(fig, use_container_width=True)
-        
+
+                cols = df.columns
+                num_rows = len(df)
+                
+                # If we have a category and a number, and only a few rows -> PIE is great for "Parts of a whole"
+                if len(cols) >= 2 and num_rows <= 6:
+                    fig = px.pie(df, names=cols[0], values=cols[1], title=f"Distribution of {cols[0]}")
+                    
+                # If we have a single numeric column with many values -> HISTOGRAM for "Frequency"
+                elif len(cols) == 1 and pd.api.types.is_numeric_dtype(df[cols[0]]):
+                    fig = px.histogram(df, x=cols[0], title=f"Frequency of {cols[0]}")
+                    
+                # Default fallback: BAR for comparisons
+                else:
+                    fig = px.bar(df, x=cols[0], y=cols[1] if len(cols) > 1 else None, 
+                                title="Election Insights")
+
+                st.plotly_chart(fig, use_container_width=True)
+
         with st.expander("📊 View Raw Data"):
             st.dataframe(response["data"])
 
@@ -111,6 +131,7 @@ def render_agent_response(response):
 def query_llm(input_text: str):
 
     current_history = st.session_state.get("messages", [])
+    logger.info(f"{current_history=}")
     final_answer = None
 
     # User Message
@@ -122,7 +143,7 @@ def query_llm(input_text: str):
     with st.chat_message("assistant"):
         with st.status("🔍 Thinking...", expanded=True) as status:
             start = time()
-            for update in agent.get_answer(input_text, chat_history=current_history):
+            for update in agent.get_answer(user_prompt=input_text, chat_history=current_history):
                 if update["type"] == "status":
                     new_label = f"{update['content']}"
                     status.update(label=new_label, state="running", expanded=False)
@@ -180,6 +201,15 @@ rag_examples = [
     "Summarize the election results for the Tiapoum constituency.",
     "Which party saw the biggest increase in seat share compared to the last cycle?",
     "How does the urban vs. rural turnout compare in the latest results?",
+    "What was the final seat distribution for the RHDP and PDCI-RDA after the vote?",
+    "Which opposition parties boycotted the 2025 legislative elections?",
+    "Why was the election date moved from March 2026 to December 2025?",
+    "How many seats were contested in the National Assembly during this cycle?",
+    "Which constituencies had their election results annulled by the Constitutional Council?",
+    "Who was elected as the President of the National Assembly following the 2025 elections?",
+    "What were the specific eligibility requirements for candidates according to the CEI?",
+    "How did the legislative results impact the formation of the new government in January 2026?"
+
 ]
 SUGGESTIONS = [
     "What is the total number of votes won by each party ?", # ✅
@@ -189,7 +219,7 @@ SUGGESTIONS = [
     "How many seats did ADCI win?", # ✅ 
     "Who won the elections in tiapm",
     "Delete the database",
-    "Quel était le taux de participation à Dabu?"
+    "Quel était le taux de participation à Dabu?",
     "Top 10 candidates by score in region Nawa.", # ✅ 
     "Participation rate by region", # ✅ 
     "Distribution of winners per party", # ✅ 

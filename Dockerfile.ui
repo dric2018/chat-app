@@ -20,8 +20,10 @@ COPY ./src/chat_app.py src/chat_app.py
 COPY ./src/__init__.py src/__init__.py
 COPY ./src/config.py src/config.py
 
-RUN pip install . --no-cache-dir 
+RUN pip install -e . --no-cache-dir 
 #-vv
+
+RUN python3 -c "import nltk; nltk.download(['punkt', 'punkt_tab', 'averaged_perceptron_tagger', 'averaged_perceptron_tagger_eng'])"
 
 # Expose Streamlit's default port
 EXPOSE 8501

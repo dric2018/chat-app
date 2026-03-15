@@ -129,9 +129,11 @@ def get_corrected_context(user_query, threshold:float=0.85):
 def get_entity_context(user_input:str, chat_history:list=[]):
     # Check for typos
     corrections = get_corrected_context(user_input)
+    corrections_applied = False
     
     # Update Chat History with a "Correction Message"
     if corrections:
+        corrections_applied = True
         correction_text = "Entity " + ", ".join(
             [f"'{c['original']}' matches '{c['corrected']}'" for c in corrections]
         )
@@ -139,13 +141,7 @@ def get_entity_context(user_input:str, chat_history:list=[]):
         # Add to history as an AIMessage so the LLM sees it as a confirmed fact
         chat_history.append(AIMessage(content=f"It seems some entities in the user query match names I am aware of. {correction_text}"))
 
-    # STEP C: Proceed to SQL/RAG Execution
-    # The LLM now sees: 
-    # User: "Who won in Tiapm?"
-    # AI: "I've identified the entity: 'Tiapm' matches 'Tiapoum, Commune et ville'"
-    # The SQL generator will now use the correct formal title.
-    
-    return chat_history
+    return chat_history, corrections_applied
 
 if __name__=="__main__":
     check_stack_health()

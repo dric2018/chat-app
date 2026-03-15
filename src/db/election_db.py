@@ -190,10 +190,12 @@ class ElectionDB:
                 """)
             
             # install nltk utils
-            nltk.download('punkt')
-            nltk.download('punkt_tab')
-            nltk.download('averaged_perceptron_tagger')
-            nltk.download('averaged_perceptron_tagger_eng')
+            nltk.download([
+                'punkt', 
+                'punkt_tab', 
+                'averaged_perceptron_tagger', 
+                'averaged_perceptron_tagger_eng'
+            ])
 
             logger.info("✅ Successfully created and populated table entity_alias.")
 
