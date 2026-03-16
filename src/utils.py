@@ -139,7 +139,11 @@ def get_entity_context(user_input:str, chat_history:list=[]):
         )
         
         # Add to history as an AIMessage so the LLM sees it as a confirmed fact
-        chat_history.append(AIMessage(content=f"It seems some entities in the user query match constituency names I am aware of. {correction_text}"))
+        chat_history.append(
+            AIMessage(
+                content=f"It seems some entities in the user query match constituency names I am aware of. {correction_text}",
+                additional_kwargs={"action": "skip"}
+            ))
 
     return chat_history, corrections_applied
 

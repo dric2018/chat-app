@@ -607,7 +607,7 @@ class SQLAgent(Agent):
 
         intent_instructions = {
             QueryIntent.AGGREGATION: "Use GROUP BY and SUM/AVG. Ensure results are numeric and in desc order.",
-            QueryIntent.RANKING: f"Use ORDER BY votes DESC and LIMIT {CFG.SQL_MAX_LIMIT}.",
+            QueryIntent.RANKING: f"Use statements like ORDER BY votes DESC and LIMIT {CFG.SQL_MAX_LIMIT}.",
             QueryIntent.CHART: "Return exactly two columns: a label (e.g., party) and a numeric value."
         }
 
@@ -1145,7 +1145,10 @@ class HybridAgent(Agent):
                         "clarification_question": response.clarification_question
                         }
 
-                    chat_history.append(AIMessage(content=response.reasoning))
+                    chat_history.append(AIMessage(
+                        content=response.reasoning,
+                        additional_kwargs={"action":"skip"}
+                    ))
                     
                     if response.decision == "clarify":
                         yield {

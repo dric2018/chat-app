@@ -202,13 +202,13 @@ rag_examples = [
     "Which party saw the biggest increase in seat share compared to the last cycle?",
     "How does the urban vs. rural turnout compare in the latest results?",
     "What was the final seat distribution for the RHDP and PDCI-RDA after the vote?",
-    "Which opposition parties boycotted the 2025 legislative elections?",
+    # "Which opposition parties boycotted the 2025 legislative elections?",
     "Why was the election date moved from March 2026 to December 2025?",
     "How many seats were contested in the National Assembly during this cycle?",
-    "Which constituencies had their election results annulled by the Constitutional Council?",
-    "Who was elected as the President of the National Assembly following the 2025 elections?",
-    "What were the specific eligibility requirements for candidates according to the CEI?",
-    "How did the legislative results impact the formation of the new government in January 2026?"
+    # "Which constituencies had their election results annulled by the Constitutional Council?",
+    # "Who was elected as the President of the National Assembly following the 2025 elections?",
+    # "What were the specific eligibility requirements for candidates according to the CEI?",
+    # "How did the legislative results impact the formation of the new government in January 2026?"
 
 ]
 SUGGESTIONS = [
@@ -249,11 +249,13 @@ for message in st.session_state.messages:
     elif isinstance(message, AIMessage):
         with st.chat_message("assistant"):
             # Pull the full dictionary back out of the metadata
-            full_response = message.additional_kwargs.get("full_response")
-            if full_response:
-                render_agent_response(full_response)
-            else:
-                st.markdown(message.content)
+            action = message.additional_kwargs.get("action")
+            if action !="skip":
+                full_response = message.additional_kwargs.get("full_response")
+                if full_response:
+                    render_agent_response(full_response)
+                else:
+                    st.markdown(message.content)
 
 chat_prompt = st.chat_input("Ask anything...", key="chat_input_key")
 
