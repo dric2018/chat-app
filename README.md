@@ -113,11 +113,28 @@ See [docker-compose.yml](docker-compose.yml) for more details about how these co
 Note that the observability/monitoring aspects were taken care of during the design and initialization of the stack since it allows easy debugging of the system.
 
 #### Setup instructions
+Clone the project repo
+```bash
+$ git clone git@github.com:dric2018/chat-app.git
+```
+
+Once the operation is complete, you can then move to the project folder using the command `cd chat-app`.
+
+If you are using a cloud-based instance, make sure to refresh it first. Run the [update_instance.sh](update_instance.sh) script as follows:
+```bash
+$ chmod +x update_instance.sh && ./update_instance.sh
+```
+
 Make sure docker is already installed on the host machine. Installation details can be found at [subfuzion/install-docker-ubuntu.md](https://gist.github.com/subfuzion/90e8498a26c206ae393b66804c032b79) on GitHub Gist.
 
 Typically, it can be done by running the following command line:
 ```sh
 $ curl -fsSL https://get.docker.com/ | sh
+```
+
+Also install docker-compose (>v5.0.1) as follows:
+```sh
+$ sudo apt update && sudo apt install docker-compose && sudo apt-get install docker-compose-plugin
 ```
 
 If Python is not already installed oin the machine, you can do so by running the following commands:
@@ -132,12 +149,6 @@ Create a virtual environment (venv) on the host machine
 ```bash
 $ python3.13 -m venv .venv # creating the venv and installing project dependencies
 $ source .venv/bin/activate && pip install -e . # then run this to install packages within venv
-```
-
-Once these are successfully installed, you can clone this repository with:
-
-```bash
-$ git clone git@github.com:dric2018/chat-app.git # and cd into the chat-app folder
 ```
 
 #### Build stack: 

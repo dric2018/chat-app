@@ -152,13 +152,13 @@ def run_stack():
                 logger.warning("Recreating containers and volumes...")            
                 
                 subprocess.run([
-                    "docker-compose", "up", "-d", "vllm",
+                    "docker", "compose", "up", "-d", "vllm",
                     "--force-recreate",
                     "--remove-orphans"
                 ], env=os.environ, check=True) 
             else:
                 subprocess.run([
-                    "docker-compose", "up", "-d", "vllm",
+                    "docker", "compose", "up", "-d", "vllm",
                     "--remove-orphans"
                 ], env=os.environ, check=True) 
 
@@ -176,16 +176,16 @@ def run_stack():
                     sys.exit(1)
 
             logger.info("♻️ Refreshing Frontend only...")
-            subprocess.run(["docker-compose", "up", "-d", "streamlit-app", 
+            subprocess.run(["docker", "compose", "up", "-d", "streamlit-app", 
                 "--no-recreate"
                 ], check=True)
             
             return
 
         logger.info("📺 Building & launching Frontend...")
-        subprocess.run(["docker-compose", "build", "streamlit-app"], check=True)
-        subprocess.run(["docker-compose", "up", "-d", "streamlit-app"], check=True)
-        subprocess.run(["docker-compose", "up", "-d", "grafana", "prometheus", "nginx"], check=True)
+        subprocess.run(["docker", "compose", "build", "streamlit-app"], check=True)
+        subprocess.run(["docker", "compose", "up", "-d", "streamlit-app"], check=True)
+        subprocess.run(["docker", "compose", "up", "-d", "grafana", "prometheus", "nginx"], check=True)
 
         up = check_stack_health()
         if up:
@@ -193,7 +193,7 @@ def run_stack():
             logger.info(f"🚀 Stack is fully operational! Access at http://{CFG.SERVER_IP}:{os.environ['NGINX_PORT']}")
 
     except Exception as e:
-        logger.error(f"Critical failure during stack initialization: {e}")
+        logger.error(f"Critical failure during stack initialization: {e}", exc_info=True)
         logger.error(e.__traceback__.tb_frame)
 
 if __name__ == "__main__":
