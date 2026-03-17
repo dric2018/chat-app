@@ -78,7 +78,7 @@ The above figure shows the project's architecture based on the requirements.
 - Tested OS: Unix-based (Ubuntu, Darwin)
 
 PS: The target environment is either GPU- or CPU-based and is not conditioned on the dev environment. 
-Runnning the app on CPU was initially meant for debugging and benchmarking purposes, but it happened to be quite sufficient to have a working stack.
+Runnning the app on CPU was initially meant for debugging and benchmarking purposes, but it happened to be quite sufficient to have a working stack. The only inconvenient would be the latency (up do 10min and more) compared to GPU-based stack (responses within seconds).
 
 #### Main Stack
 - **Docker**: Containerization tool to package the entire stack for consistent deployment across environments.

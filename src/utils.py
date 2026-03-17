@@ -59,7 +59,8 @@ def check_stack_health():
         except:
             logger.error(f"❌ {name}: \tUnreachable via url {url}")
 
-    logger.info(f"if the app is deployed on a remote server, the services will be available on `http://${CFG.SERVER_IP}:${CFG.VLLM_PORT}` as defined in the `.env` file. You may want to check your cloud console for the newly assigned ports as it is usually the case for services like Vast.ai.")
+    logger.info("If the app is deployed on a remote server, the services will be available on `http://{CFG.SERVER_IP}:${CFG.VLLM_PORT}` as defined in the `.env` file. \n" \
+    "You may want to check your cloud console for the newly assigned ports as it is usually the case for services like Vast.ai.")
     return up
 
 def normalize_text(
@@ -142,7 +143,10 @@ def get_entity_context(user_input:str, chat_history:list=[]):
         # Add to history as an AIMessage so the LLM sees it as a confirmed fact
         chat_history.append(
             AIMessage(
-                content=f"It seems some entities in the user query match constituency names I am aware of. {correction_text}",
+                content=f"""It seems some entities in the user query match constituency names I am aware of. 
+                {correction_text}.
+                We will proceed with the updated entities.
+                """,
                 additional_kwargs={"action": "skip"}
             ))
 

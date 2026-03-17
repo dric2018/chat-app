@@ -32,6 +32,8 @@ import time
 from typing import Tuple, Literal, Optional
 import traceback
 
+from unidecode import unidecode
+
 from utils import get_security_counter, get_entity_context
 
 db_client = ElectionDB()
@@ -284,7 +286,7 @@ class Agent(abc.ABC):
 
         if chat_history is not None:
             history_context = ""
-            for m in chat_history[-5:]:
+            for m in chat_history[-3:]:
                 role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
                 history_context += f"{role}: {m.content}\n" 
 
@@ -313,7 +315,7 @@ class Agent(abc.ABC):
             if not tool_requests and "<tool_call>" in response.content:
                 pass # we ignore tools here
 
-            return response.content.strip()
+            return unidecode(response.content.strip())
         
         except Exception as e:
             logger.error(f"Could not interpret results. {e}", exc_info=True)
@@ -639,7 +641,7 @@ class SQLAgent(Agent):
         if chat_history is not None:
             logger.info("updated chat history provided !")
             history_context = ""
-            for m in chat_history[-5:]:
+            for m in chat_history[-3:]:
                 role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
                 history_context += f"{role}: {m.content}\n" 
 
@@ -885,7 +887,7 @@ class RAGAgent(Agent):
         
         yield {"type": "status", "content": "reparing for RAG..."}       
         
-        limited_history = chat_history[-5:] if chat_history else []
+        limited_history = chat_history[-3:] if chat_history else []
 
         history_str = ""
         for msg in limited_history:
@@ -1128,7 +1130,7 @@ class HybridAgent(Agent):
 
                     history_context = ""
                     if chat_history:
-                        for m in chat_history[-5:]:
+                        for m in chat_history[-3:]:
                             role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
                             history_context += f"{role}: {m.content}\n"       
 
@@ -1216,7 +1218,7 @@ class HybridAgent(Agent):
                             HumanMessage(content=user_prompt)
                         ])
                         
-                        chat_resp =  self.chain.invoke(chat_history[-5])
+                        chat_resp =  self.chain.invoke(chat_history[-3])
 
                         logger.info(f"CHAT response: {chat_resp.content}")
                         
