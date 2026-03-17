@@ -59,6 +59,7 @@ def check_stack_health():
         except:
             logger.error(f"❌ {name}: \tUnreachable via url {url}")
 
+    logger.info(f"if the app is deployed on a remote server, the services will be available on `http://${CFG.SERVER_IP}:${CFG.VLLM_PORT}` as defined in the `.env` file. You may want to check your cloud console for the newly assigned ports as it is usually the case for services like Vast.ai.")
     return up
 
 def normalize_text(

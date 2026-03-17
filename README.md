@@ -169,9 +169,11 @@ Once the Stack is up and running, you will be able to access each service via:
 |Grafana (dashboards)	|http://localhost:3000|
 |Prometheus	|http://localhost:9090|
 
-PS: if the app is deployed on a remote server, the services will be available on `http://${SERVER_IP}:${PORT}` as defined in the `.env` file.
+PS: if the app is deployed on a remote server, the services will be available on `http://${CFG.SERVER_IP}:${CFG.VLLM_PORT}` as defined in the `.env` file. You may want to check your cloud console for the newly assigned ports as it is usually the case for services like Vast.ai.
 
 The streamlit app may require a username and a password. Use those that you specified in your `.env` file.
+
+Grafana's defaul login credentials are (admin, admin).
 
 ### Step 2: Implementing the Text-to-SQL Agent 
 

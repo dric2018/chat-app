@@ -1,29 +1,29 @@
-x-gpu-config: &gpu-config
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: all
-            capabilities: [gpu]
-
 services:
   # Foundations
-  vllm:
+  vllm-gpu:
     image: ${VLLM_IMAGE}
     container_name: vllm
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]    
+    ipc: host
     shm_size: '4gb'
     ports:
       - "${VLLM_PORT}:8000"
-    profiles: ["${STACK_PROFILE:-cpu}"]         
+    profiles: ["gpu"]         
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
-      - models:/root/.cache/huggingface
+      # - models:/root/.cache/huggingface
       #-e VLLM_WORKER_MULTIPROC_METHOD=spawn
       # --reasoning-parser qwen3
+      # -e VLLM_CPU_KVCACHE_SPACE=8
     command: >
       --model ${BASE_MODEL}
-      -e VLLM_CPU_KVCACHE_SPACE=8
       --host 0.0.0.0
       --dtype float16
       --trust-remote-code
@@ -33,9 +33,53 @@ services:
       --no-enable-expert-parallel 
     environment:
       - HF_TOKEN=${HF_TOKEN}
+      - VLLM_LOGGING_LEVEL=DEBUG
+      - NVIDIA_VISIBLE_DEVICES=all
+      # - VLLM_ENABLE_CUDA_COMPATIBILITY=1      
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # - LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu   
     networks:
-      - backend-net
-      - monitoring_network
+      backend-net:
+        aliases:
+          - vllm
+      monitoring_network: {}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 30s
+      retries: 50     
+      start_period: 60s
+    restart: unless-stopped
+
+  vllm-cpu:
+    image: ${VLLM_IMAGE}
+    container_name: vllm
+    shm_size: '4gb'
+    ports:
+      - "${VLLM_PORT}:8000"
+    profiles: ["cpu"]         
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      #-e VLLM_WORKER_MULTIPROC_METHOD=spawn
+      # --reasoning-parser qwen3
+    command: >
+      -e VLLM_CPU_KVCACHE_SPACE=8
+      --model ${BASE_MODEL}
+      --host 0.0.0.0
+      --dtype float16
+      --trust-remote-code
+      --enable-auto-tool-choice
+      --tool-call-parser qwen3_xml
+      --max-model-len ${MAX_MODEL_LEN}
+      --no-enable-expert-parallel 
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - VLLM_LOGGING_LEVEL=DEBUG
+    networks:
+      backend-net:
+        aliases:
+          - vllm
+      monitoring_network: {}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -111,9 +155,12 @@ services:
       - backend-net
       - monitoring_network
     depends_on:
-      vllm: 
+      vllm-gpu:
         condition: service_healthy
         required: false
+      vllm-cpu:
+        condition: service_healthy
+        required: false      
       prometheus:
         condition: service_healthy
       grafana:
@@ -136,9 +183,6 @@ services:
       - backend-net
       - monitoring_network
     depends_on:
-      vllm: 
-        condition: service_healthy
-        required: false
       streamlit-app: 
         condition: service_healthy
     restart: unless-stopped

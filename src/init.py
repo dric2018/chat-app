@@ -131,9 +131,11 @@ def run_stack():
     
         if hw["is_mac"]:
             os.environ["COMPOSE_PROFILES"] = "cpu"
+            vllm_container = "vllm-cpu"
             logger.info("🔩 Hardware reservations neutralized for CPU-only mode.")
         else:
             os.environ["COMPOSE_PROFILES"] = "gpu"
+            vllm_container = "vllm-gpu"
             logger.info("NVIDIA Profile: GPU hardware reservations active.")
 
         if not os.path.exists(CFG.DB_DIR):
@@ -152,13 +154,13 @@ def run_stack():
                 logger.warning("Recreating containers and volumes...")            
                 
                 subprocess.run([
-                    "docker", "compose", "up", "-d", "vllm",
+                    "docker", "compose", "up", "-d", f"{vllm_container}",
                     "--force-recreate",
                     "--remove-orphans"
                 ], env=os.environ, check=True) 
             else:
                 subprocess.run([
-                    "docker", "compose", "up", "-d", "vllm",
+                    "docker", "compose", "up", "-d", f"{vllm_container}",
                     "--remove-orphans"
                 ], env=os.environ, check=True) 
 
