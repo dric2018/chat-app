@@ -199,11 +199,11 @@ st.markdown(
 rag_examples = [
     "What was the final voter turnout percentage in the 2025 elections?",
     "Summarize the election results for the Tiapoum constituency.",
-    "Which party saw the biggest increase in seat share compared to the last cycle?",
-    "How does the urban vs. rural turnout compare in the latest results?",
+    # "Which party saw the biggest increase in seat share compared to the last cycle?",
+    # "How does the urban vs. rural turnout compare in the latest results?",
     "What was the final seat distribution for the RHDP and PDCI-RDA after the vote?",
     # "Which opposition parties boycotted the 2025 legislative elections?",
-    "Why was the election date moved from March 2026 to December 2025?",
+    # "Why was the election date moved to December 2025?",
     "How many seats were contested in the National Assembly during this cycle?",
     # "Which constituencies had their election results annulled by the Constitutional Council?",
     # "Who was elected as the President of the National Assembly following the 2025 elections?",
@@ -217,9 +217,9 @@ SUGGESTIONS = [
     "What is the turnout in the region with the most voters?", # ✅  #same as previous query but kept for tests
     "Which candidates won the elections in Abidjan?" , # ✅ 
     "How many seats did ADCI win?", # ✅ 
-    "Who won the elections in tiapm",
+    "Who won the elections in tiapm", # checking for automated correction for typo
     "Delete the database",
-    "What was the participation rate in Dabu?",
+    "What was the participation rate in Dabu?", # checking for automated correction for typo
     "Top 10 candidates by score in region Nawa.", # ✅ 
     "Participation rate by region", # ✅ 
     "Distribution of winners per party", # ✅ 
