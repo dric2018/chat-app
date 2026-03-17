@@ -101,7 +101,7 @@ Runnning the app on CPU was initially meant for debugging and benchmarking purpo
     - We refrain from using vision-language models (VLMs) like Qwen-VL, Dots OCR, DeepSeek OCR or any LM-based OCR model, to avoid unwanted "hallucinations" of the text based on pixels. 
     - In our case where each decimal point/digit matters, `pdfplumber` (or any of its likes) seems more accurate because it extracts the raw data.
     - We also do not want to allocate additional compute resources to run VLMs in addition to our base LLM(s). However, we do acknowledge VLMs as a more generic way of handling various PDF layouts out of the box
-    - See [notebooks/pdf_data_extraction.ipynb](notebooks/pdf_data_extraction.ipynb) for more details about our experiments with the target dataset and how the data extraction pipeline was tailored to the subject matter given we had only one PDF to consider as data source.
+    - See [notebooks/pdf_data_extraction.ipynb](./notebooks/pdf_data_extraction.ipynb) for more details about our experiments with the target dataset and how the data extraction pipeline was tailored to the subject matter given we had only one PDF to consider as data source.
 
 ### Step 1
 Once we found a sufficient design, we started by making sure components are properly implemented within the docker environment with with the appropriate parameters:
@@ -110,7 +110,7 @@ Once we found a sufficient design, we started by making sure components are prop
 - Streamlit (UI/Access)
 - Nginx (reverse proxy)
 
-See [docker-compose.yml](docker-compose.yml) for more details about how these components are interconnected.
+See [docker-compose.yml](./docker-compose.yml) for more details about how these components are interconnected.
 
 Note that the observability/monitoring aspects were taken care of during the design and initialization of the stack since it allows easy debugging of the system.
 
@@ -122,9 +122,9 @@ $ git clone git@github.com:dric2018/chat-app.git
 
 Once the operation is complete, you can then move to the project folder using the command `cd chat-app`.
 
-If you are using a cloud-based instance, make sure to refresh it first. Run the [update_instance.sh](update_instance.sh) script as follows:
+If you are using a cloud-based instance, make sure to refresh it first. Run the [scripts/update_instance.sh](./scripts/update_instance.sh) script as follows:
 ```bash
-$ chmod +x update_instance.sh && ./update_instance.sh
+$ chmod +x scripts/update_instance.sh && ./scripts/update_instance.sh
 ```
 
 Make sure docker is already installed on the host machine. Installation details can be found at [subfuzion/install-docker-ubuntu.md](https://gist.github.com/subfuzion/90e8498a26c206ae393b66804c032b79) on GitHub Gist.
@@ -158,7 +158,7 @@ We get the duckdb package installed:
 ```bash
 $ snap install duckdb
 ```
-To create and populate the database, you must run the [notebooks/pdf_data_extraction.ipynb](notebooks/pdf_data_extraction.ipynb) notebook to generate the required .parquet files (source of truth) and then run the [src/db/election_db.py](src/db/election_db.py) script as follows:
+To create and populate the database, you must run the [notebooks/pdf_data_extraction.ipynb](./notebooks/pdf_data_extraction.ipynb) notebook to generate the required .parquet files (source of truth) and then run the [src/db/election_db.py](./src/db/election_db.py) script as follows:
 
 ```bash
 (.venv) $ python -m src.db.election_db # which will create an instance of ElectionDB and execute its init_db() procedure
@@ -232,7 +232,7 @@ Note: Although we did our best to build a RAG-ready pipeline, it should be noted
 
 III. DB Views
 
-Instead of exposing all raw tables, we expose curated views (see [src/db/views.sql](src/db/views.sql)). This is a design choice to simplify data access, enhance security, and provide logical data abstraction.
+Instead of exposing all raw tables, we expose curated views (see [src/db/views.sql](./src/db/views.sql)). This is a design choice to simplify data access, enhance security, and provide logical data abstraction.
 
 The data extraction notebook generates db-related files under `data/processed`:
 - candidates.parquet
@@ -243,7 +243,7 @@ The data extraction notebook generates db-related files under `data/processed`:
 - turnout.parquet
 
 #### ElectionDB
-DB-related operations are grouped into the `ElectionDB` class in [src/db/election_db.py](src/db/election_db.py). Those are:
+DB-related operations are grouped into the `ElectionDB` class in [src/db/election_db.py](./src/db/election_db.py). Those are:
 - `init_db()` for data base initialization
 - `deploy_views()` to create and deploy table views
 - `load_embedding_model()` to load the specified embedding model
@@ -254,7 +254,7 @@ DB-related operations are grouped into the `ElectionDB` class in [src/db/electio
     - `hybrid_search()` for combining both VS and FTS
 
 #### Agent Implementaiton
-See [src/agent.py](src/agent.py) for further details about the design of the Agents.
+See [src/agent.py](./src/agent.py) for further details about the design of the Agents.
 
 - `SQLAgent`: generates SQL queries from the user prompt
 - `RAGAgent`: Interacts with the database to answer questions about explanations, and grounding.
@@ -274,7 +274,7 @@ CPU (thinking disabled):
 Level 1: Analytics-First Agent (95% Complete)
 - Ingestion: ✅ 
 
->A reproducible DuckDB pipeline with normalized entities and relational joins was presented in Setp 2. See [src/db/election_db.py](src/db/election_db.py) and [src/db/views.sql](src/db/views.sql) for additional details.
+>A reproducible DuckDB pipeline with normalized entities and relational joins was presented in Setp 2. See [src/db/election_db.py](./src/db/election_db.py) and [src/db/views.sql](./src/db/views.sql) for additional details.
 - SQL Agent: ✅ 
 > Intent classification ✅
 
@@ -379,7 +379,7 @@ Evaluation Suite: 🏗️ Not yet implemented.
     - Video capture of the solution
     - Description of the work done ✅
     - schema decisions ✅
-    - routing/guardrails (if implemented) ✅; See [src/db/sql_agent.py](src/db/sql_agent.py)
+    - routing/guardrails (if implemented) ✅; See [src/db/sql_agent.py](./src/db/sql_agent.py)
     - known limitations + next steps TBA
 
 To be added/Future work:
