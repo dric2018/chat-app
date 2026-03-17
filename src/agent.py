@@ -139,11 +139,6 @@ class Agent(abc.ABC):
         
         self.results_limit = CFG.SQL_MAX_LIMIT
 
-        self.metrics = {
-            "violations": 0,
-            "intents": {intent.value: 0 for intent in QueryIntent}
-        }
-
     @property
     def forbidden(self) -> tuple:
         """Read-only access to forbidden keywords."""
@@ -196,7 +191,6 @@ class Agent(abc.ABC):
                 yield out
                                 
         except SecurityViolationError as e:
-            self.metrics["violations"] += 1
             get_security_counter().inc()                
             logger.error(f"SECURITY SHIELD: {e}")
             yield {
@@ -247,7 +241,6 @@ class Agent(abc.ABC):
             label = response.content.strip()
             intent = QueryIntent[label] if label in [i.name for i in QueryIntent] else QueryIntent.INVALID
             
-            self.metrics["intents"][intent.value] += 1
         except KeyError:
             logger.error("KeyError exception...defaulting to invalid query")
             return QueryIntent.INVALID
@@ -416,7 +409,6 @@ class SQLAgent(Agent):
     @staticmethod
     def validate_sql(
         sql:str,
-        metrics:dict,
         forbidden:list,
         reasoning:str
     )->Tuple[bool, str]:
@@ -425,7 +417,6 @@ class SQLAgent(Agent):
 
             Args:
                 - sql (str): query to be validated
-                - metrics (dict): list of SQL-related metrics to track (number of violations identified and blocked)
                 - forbidden (list): list of forbidden SQL statements
                 - reasoning (str): Why this tool has to be used in the current call
 
@@ -444,7 +435,6 @@ class SQLAgent(Agent):
         try:
             parsed = sqlparse.parse(sql)
             if len(parsed) > 1:
-                metrics["violations"] += 1
                 get_security_counter().inc()                
                 out_message = "Multiple queries detected."
                 return is_query_valid, out_message
@@ -454,14 +444,12 @@ class SQLAgent(Agent):
             # Checking for the Command Type
             # We ensure the very first Data Manipulation Language (DML) token is 'SELECT'
             if clean_sql.get_type() != "SELECT":
-                metrics["violations"] += 1
                 get_security_counter().inc()                
                 out_message = f"Forbidden command type '{clean_sql.get_type()}'."
                 return is_query_valid, out_message
             
             # Ensuring only allowed tables are used
             if not any(t in clean_sql.value.lower() for t in CFG.ALLOWED_TABLES):
-                metrics["violations"] += 1
                 get_security_counter().inc()
                 out_message = f"Unauthorized table access detected.\nSQL: {clean_sql.value}"
                 return is_query_valid, out_message            
@@ -470,7 +458,6 @@ class SQLAgent(Agent):
             # We check every token for forbidden keywords that might bypass get_type()
             for token in clean_sql.flatten():
                 if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in forbidden:
-                    metrics["violations"] += 1
                     get_security_counter().inc()
                     out_message = f"Forbidden keyword '{token.value}' detected."
                     return is_query_valid, out_message
@@ -807,7 +794,6 @@ class SQLAgent(Agent):
                     is_safe, out_message = self.validate_sql.invoke({
                         "reasoning": "validating SQL query",
                         "sql": sql,
-                        "metrics": self.metrics,
                         "forbidden": self.forbidden
                     })
                     
@@ -1079,7 +1065,6 @@ class HybridAgent(Agent):
                 is_safe, out_message = self.sql_expert.validate_sql.invoke({
                     "reasoning": "validating user query",
                     "sql": user_prompt,
-                    "metrics": self.metrics,
                     "forbidden": self.forbidden
                 })
                     
