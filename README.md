@@ -1,6 +1,8 @@
 # Chat with PDF using vLLM + LangChain
 A minimalistic, chat application designed to translate natural language into safe queries to learn more about election results, rankings, turnout, and more.
 
+Demo video: https://drive.google.com/file/d/1okolo1f7uRzpQHx6NWg1BpU3mZadJa05/view
+
 ## A - Description
 This is a `chat-with-your-document` app implemented as a solution to a set of challenges for an AI Engineer position. Below are the overall objectives:
 
