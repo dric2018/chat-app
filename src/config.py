@@ -56,7 +56,7 @@ class CFG:
                                "entity_alias"
                                ]
     # DB
-    SQL_MAX_LIMIT           = 50
+    SQL_MAX_LIMIT           = 20
     TOP_K                   = 10
     
     # LLM (vLLM) Settings

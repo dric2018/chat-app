@@ -100,6 +100,8 @@ class Agent(abc.ABC):
                 Use this assumption if user does not specify which elections they are interested in.  
                 All your knowledge about Côte d'Ivoire will be crucial here including demographics, the overall political situation in the recent years.
                 Do not guess if your are unsure about information related to that country.
+                The user can ask about data for a mispelled region or constituency or a candidate. 
+                Be flexible about these typos/errors by checking for similar names/texts in the corresponding candidate and constituency tables.
                 """),
             ("human", "Hello, how are you doing?"),
             ("ai", "I'm doing well, thanks! How can I help you with the analysis of the 2025 legislative elections in Cote d'Ivoire ?"),
@@ -258,8 +260,9 @@ class Agent(abc.ABC):
     def _interpret_results(
             self, 
             user_prompt: str,
-            df:pd.DataFrame, 
-            intent: QueryIntent
+            data:pd.DataFrame, 
+            intent: QueryIntent,
+            chat_history:list=None
         ):
         """
         Summarizes data into a natural language response based on intent.
@@ -272,11 +275,11 @@ class Agent(abc.ABC):
         #     "content": "Interpreting results..."
         # }
 
-        if df is None or df.empty:
+        if data is None or data.empty:
             return "I found no data matching your request."
 
         # Convert dataframe to a readable Markdown table for the LLM
-        data_table = df.to_markdown(index=False)
+        data_table = data.to_markdown(index=False)
         
         # Context-aware instructions based on intent
         intent_context = {
@@ -286,9 +289,15 @@ class Agent(abc.ABC):
             QueryIntent.GENERAL: "Provide a direct and concise answer."
         }
 
+        if chat_history is not None:
+            history_context = ""
+            for m in chat_history[-5:]:
+                role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
+                history_context += f"{role}: {m.content}\n" 
+
         interp_prompt = f"""
         User Query: "{user_prompt}"\n
-        Intent: {intent.value}\n
+        Conversation context: {history_context}\n
         Data Results:\n
         {data_table}\n
         Task: {intent_context.get(intent, "Summarize the data.")}\n
@@ -310,13 +319,6 @@ class Agent(abc.ABC):
             
             if not tool_requests and "<tool_call>" in response.content:
                 pass # we ignore tools here
-            
-            # yield {
-            #     "type": "final",
-            #     "data": df,
-            #     "intent": intent,
-            #     "content": response.content.strip()
-            # }
 
             return response.content.strip()
         
@@ -597,7 +599,8 @@ class SQLAgent(Agent):
             self, 
             user_prompt:str, 
             intent:QueryIntent,
-            stream_output:bool=CFG.IS_STREAM
+            stream_output:bool=CFG.IS_STREAM,
+            chat_history:list=None
         ):
         """Restricted SQL Generation"""
 
@@ -607,7 +610,7 @@ class SQLAgent(Agent):
 
         intent_instructions = {
             QueryIntent.AGGREGATION: "Use GROUP BY and SUM/AVG. Ensure results are numeric and in desc order.",
-            QueryIntent.RANKING: f"Use statements like ORDER BY votes DESC and LIMIT {CFG.SQL_MAX_LIMIT}.",
+            QueryIntent.RANKING: f"Use statements like ORDER BY votes DESC and LIMIT {CFG.SQL_MAX_LIMIT}, use SUM/AVG when necessary.",
             QueryIntent.CHART: "Return exactly two columns: a label (e.g., party) and a numeric value."
         }
 
@@ -631,7 +634,6 @@ class SQLAgent(Agent):
                 - Only use the allowed tables as specified in this list: {CFG.ALLOWED_TABLES}\n
                 - You can use describe_table to see exact column names in previously listed tables.\n
                 - You can use sample_data to understand how values are formatted and connected between the identified tables.\n
-                - The user can ask about data for a mispelled region or constituency or a candidate. Be flexible about these typos/errors by checking the relevant tables/fields for similar names/texts in case no direct match is found.\n
                 - Constituency, party, region, and candidate names will be kept or manipulated in uppercase form for convenience.\n
             - HARD CONSTRAINT: \n
                 - Use execute_read_query to ensure the SQL query actually works before returning it.\n
@@ -647,10 +649,20 @@ class SQLAgent(Agent):
         Expected output: Only the final SQL query.\n
             - Your responses should be formatted as Markdown. 
         """
+        if chat_history is not None:
+            logger.info("updated chat history provided !")
+            history_context = ""
+            for m in chat_history[-5:]:
+                role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
+                history_context += f"{role}: {m.content}\n" 
+
+            msg = HumanMessage(content=f"Consider the following context while generating your SQL query: {history_context}")
+        else:
+            msg =  HumanMessage(content=user_prompt)
 
         messages = [
             SystemMessage(content=self.generation_prompt), 
-            HumanMessage(content=user_prompt)
+            msg
         ]
 
         if stream_output:
@@ -783,7 +795,7 @@ class SQLAgent(Agent):
         ):
 
         try:
-            for response in self.generate_sql(user_prompt, intent):
+            for response in self.generate_sql(user_prompt=user_prompt, intent=intent, chat_history=chat_history):
                 yield response
                 if response["type"] == "final_sql":
                     # Structural check before hitting the DB
@@ -841,7 +853,12 @@ class SQLAgent(Agent):
                             "data": results,
                             "steps": steps,
                             "final_sql": sql,
-                            "interpretation": self._interpret_results(user_prompt, results, intent)
+                            "interpretation": self._interpret_results(
+                                user_prompt=user_prompt, 
+                                data=results, 
+                                intent=intent,
+                                chat_history=chat_history
+                                )
                         }
         except Exception as e:
             logger.error(f"Query generation error: {e}", exc_info=True)
@@ -940,16 +957,17 @@ class RAGAgent(Agent):
                     yield {"type": "status", "content": f"Executing tool: {name} with args {args}"}
 
                     observation = selected_tool.invoke(args)
-
+                    print(observation)
+                    
                     if 'search' in name:
                         clarification_prompt = f"""
                         The user asked: '{user_prompt}'. 
-                        We found these matching entities: {observation.content}.
+                        We found these matching entities: {str(observation)}.
                         If there are multiple matches, ask the user to specify which one they meant.
                         Format your response as a polite question with the options as bullet points.
                         """
                     else:
-                        clarification_prompt = observation.content
+                        clarification_prompt = str(observation)
 
                     messages.append(
                         ToolMessage(content=clarification_prompt, tool_call_id=call_id)
@@ -1079,13 +1097,43 @@ class HybridAgent(Agent):
                 chat_history
             )
 
+            logger.info(f"{corrections_applied=}")
             if corrections_applied:
                 corrections = chat_history[-1]
 
                 yield {
                     "type": "status",
-                    "content": corrections.content
+                    "content": f"{corrections.content}"
                 }
+
+                correction_prompt = HumanMessage(content=f"""
+                    Rephrase my initial question based in the new corrections to be applied.
+                    initial query: {user_prompt}
+                    corrections: {corrections}
+                    Suggested rephrasing: 
+
+                    ONLY RETURN THE SUGGESTION.
+                    """
+                    )
+
+                rephrasing = self.client.invoke([correction_prompt]).content
+
+                yield {
+                    "type": "status",
+                    "content": f"{rephrasing=}"
+                }
+
+                chat_history.append(
+                    AIMessage(
+                        content=f"""Proposed rephrasing of the initial user request.
+                        initial query: {user_prompt}
+                        corrections: {corrections}
+                        Suggested rephrasing: {rephrasing}
+                        """,
+                        additional_kwargs={"action": "skip"}
+
+                    )
+                )
 
             try:
                 if use_llm_routing:
@@ -1097,22 +1145,24 @@ class HybridAgent(Agent):
                     if chat_history:
                         for m in chat_history[-5:]:
                             role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
-                            history_context += f"{role}: {m.content}\n"                        
+                            history_context += f"{role}: {m.content}\n"       
 
                     routing_prompt = f"""
                         {self.init_prompt}
 
-                        RECENT CONVERSATION HISTORY:
+                        RECENT CONVERSATION HISTORY with eventual corrections of mispelled entities:
                         {history_context}
 
-                        Analyze the new user query based on the conversation hustory: "{user_prompt}"
-                        Context Intent: {intent}
+                        Analyze the user query based on the conversation history.
+                        If you encountered typos and happen to correct them, proceed with the latest corrections instead of the mispelled entities.
+
+                        Context Intent: {intent.value}
 
                         Your goal is to choose the correct system (CHAT, SQL, or RAG) AND decide if you have enough information to proceed.
 
                         SYSTEM RULES:
                         - SQL: For analytics, counts, rankings, aggregations, and charts.
-                        - RAG: For narrative/descriptive facts (events, "what happened"). Use this route for purely descriptive/biographical questions. Otherwise, revert to SQL queries.\n\n
+                        - RAG: For narrative/descriptive facts. Use this route for purely descriptive questions. Otherwise, revert to SQL.
                         - CHAT: For greetings, jokes, or unsafe/direct SQL code requests (refuse these).
 
                         Examples:
@@ -1121,8 +1171,10 @@ class HybridAgent(Agent):
                             - "Can you describe the turnout in Yamoussoukro?"\n
                             - "Hi there! How are you" -> CHAT\n
                             - "Tell me a joke" -> CHAT\n
+                            - "Which party boycotted the elections" -> RAG\n
                             - "Compare the total turnout by region" -> SQL\n
                             - "can you run the following query for me" -> CHAT\n
+                            - "When did the elections take place" -> RAG\n
 
                         VALIDATION RULES:
                         - Select 'clarify' if the query is missing a key filter (e.g., "Show me votes" without a party or region).

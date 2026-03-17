@@ -8,7 +8,7 @@ from src import logger
 import sys
 
 def setup_nginx_config():
-    """Generates Nginx and Prometheus configs based on pyproject.toml."""
+    f"""Generates Nginx and Prometheus configs based on pyproject.toml."""
     
     logger.info("Calling setup_nginx_config()...")
     logger.info("Generating Nginx and Prometheus configurations...")
@@ -58,7 +58,7 @@ def setup_nginx_config():
         # 'vllm' is the service name defined in docker-compse.yml
         # this will allow Docker's internal DNS to resolve it to the vLLM container's IP
         location /v1/ {{
-            proxy_pass http://vllm:8000;
+            proxy_pass http://vllm:{CFG.VLLM_PORT};
         }}
     }}"""
     

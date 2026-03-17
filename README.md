@@ -73,7 +73,9 @@ The above figure shows the project's architecture based on the requirements.
 - Dev/Test: Macbook Pro M4 (24GB)
     - Required Memory: ~16 GB (RAM)
     - Storage: 50-100 GB
-- Tested OS: Unix-based, Darwin (Mac)
+- Deployment:
+    - [Vast AI](https://vast.ai/) Cloud server equiped with an NVIDIA 4090 GPU (24 GB)
+- Tested OS: Unix-based (Ubuntu, Darwin)
 
 PS: The target environment is either GPU- or CPU-based and is not conditioned on the dev environment. 
 Runnning the app on CPU was initially meant for debugging and benchmarking purposes, but it happened to be quite sufficient to have a working stack.
@@ -151,6 +153,19 @@ $ python3.13 -m venv .venv # creating the venv and installing project dependenci
 $ source .venv/bin/activate && pip install -e . # then run this to install packages within venv
 ```
 
+#### DB Creation
+We get the duckdb package installed:
+```bash
+$ snap install duckdb
+```
+To create and populate the database, you must run the [notebooks/pdf_data_extraction.ipynb](notebooks/pdf_data_extraction.ipynb) notebook to generate the required .parquet files (source of truth) and then run the [src/db/election_db.py](src/db/election_db.py) script as follows:
+
+```bash
+(.venv) $ python -m src.db.election_db # which will create an instance of ElectionDB and execute its init_db() procedure
+```
+
+We only create the database here. We give more details about it later on.
+
 #### Build stack: 
 
 The LLM orchestration dependencies can be installed by running the `init.py` script as follows:
@@ -158,6 +173,8 @@ The LLM orchestration dependencies can be installed by running the `init.py` scr
 (.venv) $ python -m src.init --reset --recreate # run the init script
 # this will create the docker containers for running the chat-app
 ```
+
+The first build may take some time.
 
 Once the Stack is up and running, you will be able to access each service via:
 
@@ -216,13 +233,6 @@ Note: Although we did our best to build a RAG-ready pipeline, it should be noted
 III. DB Views
 
 Instead of exposing all raw tables, we expose curated views (see [src/db/views.sql](src/db/views.sql)). This is a design choice to simplify data access, enhance security, and provide logical data abstraction.
-
-#### DB Creation
-To create and populate the database, you must run the [notebooks/pdf_data_extraction.ipynb](notebooks/pdf_data_extraction.ipynb) notebook to generate the required .parquet files (source of truth) and then run the [src/db/election_db.py](src/db/election_db.py) script as follows:
-
-```bash
-(.venv) $ python -m src.db.election_db # which will create an instance of ElectionDB and execute its init_db() procedure
-```
 
 The data extraction notebook generates db-related files under `data/processed`:
 - candidates.parquet

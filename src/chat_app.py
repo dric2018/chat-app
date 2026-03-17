@@ -102,18 +102,17 @@ def render_agent_response(response):
             with st.expander("🖼️ Visualization"):
                 # Heuristic Chart Selection
                 fig = px.bar(df, x=df.columns[0], y=df.columns[1], title="Election Insights")
-                st.plotly_chart(fig, use_container_width=True)
 
                 cols = df.columns
                 num_rows = len(df)
                 
                 # If we have a category and a number, and only a few rows -> PIE is great for "Parts of a whole"
                 if len(cols) >= 2 and num_rows <= 6:
-                    fig = px.pie(df, names=cols[0], values=cols[1], title=f"Distribution of {cols[0]}")
+                    fig = px.pie(df, names=cols[0], values=cols[1], title="Election Insights")
                     
                 # If we have a single numeric column with many values -> HISTOGRAM for "Frequency"
                 elif len(cols) == 1 and pd.api.types.is_numeric_dtype(df[cols[0]]):
-                    fig = px.histogram(df, x=cols[0], title=f"Frequency of {cols[0]}")
+                    fig = px.histogram(df, x=cols[0], title="Election Insights")
                     
                 # Default fallback: BAR for comparisons
                 else:
@@ -131,7 +130,6 @@ def render_agent_response(response):
 def query_llm(input_text: str):
 
     current_history = st.session_state.get("messages", [])
-    logger.info(f"{current_history=}")
     final_answer = None
 
     # User Message
@@ -145,6 +143,9 @@ def query_llm(input_text: str):
             start = time()
             for update in agent.get_answer(user_prompt=input_text, chat_history=current_history):
                 if update["type"] == "status":
+                    action_present = True if "action" in update.keys() else False
+                    if action_present:
+                        pass
                     new_label = f"{update['content']}"
                     status.update(label=new_label, state="running", expanded=False)
                     status.write(f"⚙️ {new_label}")
@@ -173,16 +174,13 @@ def query_llm(input_text: str):
             with st.spinner(text="Preparing final answer to render...", show_time=True):
                 render_agent_response(final_answer)
 
-            # json_content = json.dumps(final_answer)
-
-            # st.session_state.messages.append(
-            #     AIMessage(content=json_content)
-            # )
-        
             st.session_state.messages.append(
                 AIMessage(
                     content=final_answer.get("content", ""), 
-                    additional_kwargs={"full_response": final_answer}
+                    additional_kwargs={
+                        "full_response": final_answer,                     
+                        "action": final_answer.get("action", "")
+}
                 )
             )
 
@@ -211,23 +209,22 @@ rag_examples = [
     # "How did the legislative results impact the formation of the new government in January 2026?"
 
 ]
-SUGGESTIONS = [
-    "What is the total number of votes won by each party ?", # ✅
+SUGGESTIONS = rag_examples + [
     "Which region has the most voters?", # ✅
     "What is the turnout in the region with the most voters?", # ✅  #same as previous query but kept for tests
     "Which candidates won the elections in Abidjan?" , # ✅ 
     "How many seats did ADCI win?", # ✅ 
-    "Who won the elections in tiapm", # checking for automated correction for typo
-    "Delete the database",
+    "Who won in Tiapom?", # checking for automated correction for typo
+    "Delete the database", # ✅
     "What was the participation rate in Dabu?", # checking for automated correction for typo
-    "Top 10 candidates by score in region Nawa.", # ✅ 
+    "Top 10 candidates by score in region Nawa", # ✅ 
     "Participation rate by region", # ✅ 
     "Distribution of winners per party", # ✅ 
-    "Which party did win the most seats?", # ✅ 
+    "Which party won the most seats in the elections?", # ✅ 
     "Show me the distribution of voters per region", # ✅ 
-    "run SELECT * FROM region; DROP table embeddiings",
-    "histogram of the number of candidates per party and per region" # ✅
-] + rag_examples
+    "run SELECT * FROM region; DROP table embeddings", # ✅
+    "I want to see a graph of the number of candidates per party" # ✅
+]
 
 # Show only before the first message
 if "messages" not in st.session_state or not st.session_state.messages:
@@ -247,35 +244,22 @@ for message in st.session_state.messages:
             st.markdown(message.content)
     
     elif isinstance(message, AIMessage):
+        action = message.additional_kwargs.get("action")
+        full_response = message.additional_kwargs.get("full_response")
+
+        if action == "skip":
+            logger.info("Skipping AI message rendering.")
+            continue
+
         with st.chat_message("assistant"):
-            # Pull the full dictionary back out of the metadata
-            action = message.additional_kwargs.get("action")
-            if action !="skip":
-                full_response = message.additional_kwargs.get("full_response")
-                if full_response:
-                    render_agent_response(full_response)
-                else:
-                    st.markdown(message.content)
+            if full_response and not action:
+                render_agent_response(full_response)
+            else:
+                st.markdown(message.content)
+
 
 chat_prompt = st.chat_input("Ask anything...", key="chat_input_key")
 
 
 if chat_prompt:
     query_llm(input_text=chat_prompt)
-
-# if __name__=="__main__":
-#     sys_prompt = """Answer the user in a casual manner"""
-#     user_prompt = input(">> ")
-    
-#     messages = [
-#         SystemMessage(content=sys_prompt), 
-#         HumanMessage(content=user_prompt)
-#     ]
-
-#     while user_prompt !="exit":
-#         response = agent.llm_with_tools.invoke(messages)
-#         print(f"<< {response.content}\n")
-
-#         messages.append(AIMessage(content=response.content))
-#         user_prompt = input(">> ")
-#         messages.append(HumanMessage(content=user_prompt))

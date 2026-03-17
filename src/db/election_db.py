@@ -2,8 +2,6 @@ from __init__ import logger
 from config import CFG
 import duckdb
 
-import nltk
-
 import pandas as pd
 
 import re
@@ -75,6 +73,18 @@ class ElectionDB:
             """)    
             logger.info("✅ Successfully created and populated table region")
 
+            conn.execute(f"""
+                DROP SEQUENCE IF EXISTS seq_parties_id;                         
+                CREATE SEQUENCE seq_parties_id START 1;
+
+                CREATE OR REPLACE TABLE party AS
+                SELECT
+                    nextval('seq_parties_id') AS PARTY_ID,
+                    p.*  
+                FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/parties.parquet') p
+            """)
+            logger.info("✅ Successfully created and populated table party")
+
 
             conn.execute(f"""
                 DROP SEQUENCE IF EXISTS seq_candidates_id;                         
@@ -89,18 +99,6 @@ class ElectionDB:
                 JOIN party par ON p.PARTY_NAME = par.PARTY_NAME;
             """)
             logger.info("✅ Successfully created and populated table candidate")
-
-            conn.execute(f"""
-                DROP SEQUENCE IF EXISTS seq_parties_id;                         
-                CREATE SEQUENCE seq_parties_id START 1;
-
-                CREATE OR REPLACE TABLE party AS
-                SELECT
-                    nextval('seq_parties_id') AS PARTY_ID,
-                    p.*  
-                FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/parties.parquet') p
-            """)
-            logger.info("✅ Successfully created and populated table party")
 
             conn.execute(f"""
                 DROP SEQUENCE IF EXISTS seq_constituencies_id;
@@ -135,10 +133,6 @@ class ElectionDB:
             """)
             logger.info("✅ Successfully created and populated table result")
 
-            # conn.execute("""
-            #     ALTER TABLE result ADD COLUMN IF NOT EXISTS is_winner BOOLEAN;
-            # """)
-
             conn.execute(f"""
                 DROP SEQUENCE IF EXISTS seq_turnouts_id;                         
                 CREATE SEQUENCE seq_turnouts_id START 1;
@@ -167,11 +161,10 @@ class ElectionDB:
                          
             ALTER TABLE embeddings ALTER CHUNK_ID SET DEFAULT nextval('seq_chunk_id');
             
-            INSTALL fts;             
+            INSTALL fts;                         
             """)
             logger.info("✅ Successfully created table embeddings")
-            # self.initialize_fts()
-
+            
             # Alias table only for constituency
             conn.execute(f"""
                 INSTALL rapidfuzz FROM community;
@@ -188,14 +181,6 @@ class ElectionDB:
                 FROM read_parquet('{CFG.PROCESSED_DATA_DIR}/entity_alias.parquet') p
                 JOIN constituency circ ON p.CONSTITUENCY_NUM = circ.CONSTITUENCY_NUM;
                 """)
-            
-            # install nltk utils
-            nltk.download([
-                'punkt', 
-                'punkt_tab', 
-                'averaged_perceptron_tagger', 
-                'averaged_perceptron_tagger_eng'
-            ])
 
             logger.info("✅ Successfully created and populated table entity_alias.")
 
@@ -203,7 +188,7 @@ class ElectionDB:
             self.deploy_views(conn, "src/db/views.sql")
 
             self.compute_embeddings()
-
+            
             logger.info("Views successfully created...closing DB connection.")
             conn.close()
 
@@ -310,6 +295,8 @@ class ElectionDB:
         assert self.embedding_model is not None, "Failed to properly load mbedding model"
         
         with duckdb.connect(str(CFG.DB_PATH)) as conn:
+            conn.execute("LOAD fts;")
+            
             query_vector = self.embedding_model.encode(query).tolist()
 
             # Unified query using Reciprocal Rank Fusion (RRF)
@@ -347,7 +334,8 @@ class ElectionDB:
                 k_rrf, 
                 top_k
             ]
-            results = conn.execute(sql, params).fetchall()    
+            results = conn.execute(sql, params).df().drop_duplicates(subset=['CHUNK_ID'])
+
                    
         return results       
     
@@ -405,36 +393,27 @@ class ElectionDB:
                 except Exception as e:
                     logger.error(f"{e}")
                     print(f"Batch #{i}")
+                
+            self.initialize_fts(conn)
 
             logger.info(f"✅ RAG table synced with {len(data)} vectors.")
 
-            conn.execute(
-                f"""
-                LOAD fts;
-                PRAGMA drop_fts_index('embeddings');
-                PRAGMA create_fts_index(
-                    'embeddings', 'CHUNK_ID', 'TEXT_CHUNK', overwrite=1
-                );  
-                """
-            )
-            logger.info(f"FTS index successfully created")
-
-    def initialize_fts(self):
+    def initialize_fts(self, conn):
         """To enable Full-Text Search on embeddings table."""
 
         logger.info("Initializing FTS.")
 
-        with duckdb.connect(str(CFG.DB_PATH)) as conn:
-            conn.execute("INSTALL fts; LOAD fts;")
-            
-            # Drop if exists
-            conn.execute("PRAGMA drop_fts_index('embeddings')")
-            
-            conn.execute("""
-                PRAGMA create_fts_index(
-                    'embeddings', 'CHUNK_ID', 'TEXT_CHUNK', overwrite=1
-                )
-            """)
+        conn.execute("LOAD fts;")
+        
+        # conn.execute("PRAGMA drop_fts_index('embeddings')")            
+        conn.execute("""
+            PRAGMA create_fts_index(
+                'embeddings', 
+                'CHUNK_ID', 
+                'TEXT_CHUNK', 
+                overwrite=1
+            )
+        """)
         logger.info("FTS Index initialized successfully.")
 
 
