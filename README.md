@@ -80,7 +80,7 @@ The above figure shows the project's architecture based on the requirements.
 - Tested OS: Unix-based (Ubuntu, Darwin)
 
 PS: The target environment is either GPU- or CPU-based and is not conditioned on the dev environment. 
-Runnning the app on CPU was initially meant for debugging and benchmarking purposes, but it happened to be quite sufficient to have a working stack. The only inconvenient would be the latency (up do 10min and more) compared to GPU-based stack (responses within seconds).
+Runnning the app on CPU was initially meant for debugging and benchmarking purposes, but it happened to be quite sufficient to have a working stack. The only inconvenient would be the latency (up to 10min and more) compared to GPU-based deployment (responses within seconds).
 
 #### Main Stack
 - **Docker**: Containerization tool to package the entire stack for consistent deployment across environments.
@@ -141,7 +141,7 @@ Also install docker-compose (>v5.0.1) as follows:
 $ sudo apt update && sudo apt install docker-compose && sudo apt-get install docker-compose-plugin
 ```
 
-If Python is not already installed oin the machine, you can do so by running the following commands:
+If Python is not already installed on the machine, you can do so by running the following commands:
 ```bash
 $ sudo apt-get update && sudo apt-get install -y python3.13 python3.13-venv python3.13-dev
 
@@ -192,7 +192,7 @@ PS: if the app is deployed on a remote server, the services will be available on
 
 The streamlit app may require a username and a password. Use those that you specified in your `.env` file.
 
-Grafana's defaul login credentials are (admin, admin).
+Grafana's default login credentials are (admin, admin).
 
 ### Step 2: Implementing the Text-to-SQL Agent 
 
@@ -255,7 +255,7 @@ DB-related operations are grouped into the `ElectionDB` class in [src/db/electio
     - `full_text_search()` (FTS) for performing vector search on the stored data
     - `hybrid_search()` for combining both VS and FTS
 
-#### Agent Implementaiton
+#### Agent Implementation
 See [src/agent.py](./src/agent.py) for further details about the design of the Agents.
 
 - `SQLAgent`: generates SQL queries from the user prompt
@@ -272,6 +272,10 @@ CPU (thinking disabled):
     - set MAX_TOKENS = 4096
 - facebook/opt-125m ( ❌ ): could not make it work with the setup
 
+GPU (thinking disabled):
+- Qwen/Qwen3-4B-Instruct-2507 ( ✅ ):  small model, much slower but more robust and more reliable with tool manipulation as well as text generation.
+    - set MAX_TOKENS = 4096
+
 ### Overall Progress
 Level 1: Analytics-First Agent (95% Complete)
 - Ingestion: ✅ 
@@ -280,16 +284,16 @@ Level 1: Analytics-First Agent (95% Complete)
 - SQL Agent: ✅ 
 > Intent classification ✅
 
-> Restricted SQL generation with security guardrails; no forbidded statement is executed and violations are blocked ✅.
+> Restricted SQL generation with security guardrails; no forbidden statement is executed and violations are blocked ✅.
 
-> Chart Generation: We have the `CHART` intent and the agent returns the necessary data; the streamlit UI displays the charts via plotly, though it can be improved ✅. Currently, only bar charts and histograms are supported.
+> Chart Generation: We have the `CHART` intent and the agent returns the necessary data; the streamlit UI displays the charts via plotly, though it can be improved ✅. Currently, only pie, bar charts, and histograms are supported.
 
 Level 2: Hybrid Router (90% Complete)
 RAG Indexing: ✅
 > Created the `embeddings` table and its corresponding view `vw_rag_descriptions` for results and turnout.
 
 Hybrid Routing: ✅. 
-> Logic for SQL and RAG merged into a `HybridAgent` that uses the appropriate pipeline based on the user request.
+> Logic for SQL and RAG merged into a `HybridAgent` that uses the appropriate pipeline based on the user request (intent, path).
 
 > A CHAT route was added in case the user asks general questions that may not be directly related to the elections. 
 
@@ -300,10 +304,10 @@ Citations: 🏗️ Not yet implemented. However, we extracted the page_id (sourc
 > `ENTITY_ID` present in the RAG-ready tables; 
 > Need to map it back to `page_id` during the final response, after we ensure `page_id` and `row_id` are extracted and saved during ingestion.
 
-Level 3: Improved Agentic (25% Complete)
+Level 3: Improved Agentic (60% Complete)
 Disambiguation: 🏗️ In Progress. 
 
-> Current ingestion handles some normalization, but the Agent doesn't yet ask the user for clarification nor does it perform auto-disambiguation.
+> Current ingestion handles some normalization, but the Agent doesn't yet ask the user for clarification in a controlled loop due to untracked chat history outside of the sessions.
 
 Session Memory: 🏗️ Not yet implemented. 
 
@@ -377,12 +381,12 @@ Evaluation Suite: 🏗️ Not yet implemented.
     - tests (as relevant per level)
 - README + .env.example ✅
 
-- Short write-up:
-    - Video capture of the solution
+- Short write-up ([cmanouan_solution_chat_app.pdf](./cmanouan_solution_chat_app.pdf)):
+    - Video capture of the solution ✅
     - Description of the work done ✅
     - schema decisions ✅
     - routing/guardrails (if implemented) ✅; See [src/db/sql_agent.py](./src/db/sql_agent.py)
-    - known limitations + next steps TBA
+    - known limitations + next steps ✅
 
 To be added/Future work:
 - Persistent messages history
