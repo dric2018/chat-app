@@ -9,7 +9,8 @@ import plotly.express as px
 import re
 
 import streamlit as st
-from agent import QueryIntent, HybridAgent
+from agents.agent import QueryIntent
+from agents.hybrid_agent import HybridAgent
 
 from utils import parse_llm_response
 

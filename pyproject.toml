@@ -10,6 +10,7 @@ dependencies = [
     "langchain-community",
     "langchain-text-splitters",
     "langchain-core",
+    "langsmith",
     "streamlit", 
     "pdfplumber>=0.10.0",
     "pandas>=2.0.0",

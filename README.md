@@ -92,6 +92,7 @@ Runnning the app on CPU was initially meant for debugging and benchmarking purpo
 
 - **Prometheus**: Time-series database that scrapes and stores metrics from vLLM and the chat app.
 - **Grafana**: Visualization platform to view and monitor system health via a dashboard.
+- **LangSmith**: for end-to-end Traceability
 
 #### Frontend
 - **Streamlit**: Python-based web framework for building a clean chat interface with minimal frontend code.
@@ -334,16 +335,14 @@ Available metircs include:
 - vLLM CPU Usage
 - Cache Hit Rate (Prefix Caching)
 
-Traceability: 🏗️ Not yet implemented. 
+Traceability: 🏗️ Added LangSmith to the stack. 
 
-> Can think about integrating with Grafana/Loki, which would fully satisfy the "trace each request end-to-end" requirement.
-
-> Current Grafana dashboard can be upgraded with additional metrics most of which are currently logged.
-- Intent classification \& routing 🏗️
-- Retrieval results 🏗️
+> This is combined with the Grafana dashboard and allows for tracking:
+- Intent classification \& routing
+- Retrieval results
 - SQL generated and validation outcome
-tool calls (charts) and timings 🏗️
-- Blocked Security Violations 🏗️
+tool calls (charts) and timings
+- Blocked Security Violations
 
 Evaluation Suite: 🏗️ Not yet implemented. 
 

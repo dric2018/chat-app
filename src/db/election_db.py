@@ -2,6 +2,8 @@ from __init__ import logger
 from config import CFG
 import duckdb
 
+from langsmith import traceable
+
 import pandas as pd
 
 import re
@@ -224,6 +226,7 @@ class ElectionDB:
         except FileNotFoundError:
             logger.error(f"Could not find view file at {sql_file_path}")
 
+    @traceable
     def vector_search(
             self,
             query: str, 
@@ -255,6 +258,7 @@ class ElectionDB:
 
         return results
 
+    @traceable
     def full_text_search(
         self,
             query: str, 
@@ -280,6 +284,7 @@ class ElectionDB:
 
         return results
     
+    @traceable
     def hybrid_search(
             self,
             query: str, 
