@@ -154,7 +154,6 @@ class Agent(abc.ABC):
     def __call__(self):
         logger.info("Agent Initialized")
 
-    @traceable
     def _collect_tools(self) -> list:
         """Scans for any attribute that is an instance of a LangChain Tool."""
         found_tools = []
@@ -281,9 +280,10 @@ class Agent(abc.ABC):
             QueryIntent.CHART: "Describe the distribution or trend. Mention the highest and lowest points.",
             QueryIntent.GENERAL: "Provide a direct and concise answer."
         }
+        
+        history_context = ""
 
-        if chat_history is not None:
-            history_context = ""
+        if chat_history:
             for m in chat_history[-3:]:
                 role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
                 history_context += f"{role}: {m.content}\n" 
