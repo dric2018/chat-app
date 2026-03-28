@@ -159,7 +159,7 @@ $ source .venv/bin/activate && pip install -e . # then run this to install packa
 #### DB Creation
 We get the duckdb package installed:
 ```bash
-$ snap install && mkdir -p storage/duckdb
+$ snap install duckdb && mkdir -p storage/duckdb
 ```
 To create and populate the database, you must run the [notebooks/pdf_data_extraction.ipynb](./notebooks/pdf_data_extraction.ipynb) notebook to generate the required .parquet files (source of truth) and then run the [src/db/election_db.py](./src/db/election_db.py) script as follows:
 
