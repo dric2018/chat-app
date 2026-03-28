@@ -280,10 +280,9 @@ class Agent(abc.ABC):
             QueryIntent.CHART: "Describe the distribution or trend. Mention the highest and lowest points.",
             QueryIntent.GENERAL: "Provide a direct and concise answer."
         }
-        
-        history_context = ""
 
-        if chat_history:
+        if chat_history is not None:
+            history_context = ""
             for m in chat_history[-3:]:
                 role = "USER" if isinstance(m, HumanMessage) else "ASSISTANT" if isinstance(m, AIMessage) else "SYSTEM"
                 history_context += f"{role}: {m.content}\n" 
